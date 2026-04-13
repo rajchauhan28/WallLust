@@ -16,7 +16,22 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwayland-dev libxkbcommon-dev libegl1-mesa-dev libfontconfig1-dev
+          sudo apt-get install -y \
+            libwayland-dev \
+            libxkbcommon-dev \
+            libegl1-mesa-dev \
+            libfontconfig1-dev \
+            libavutil-dev \
+            libavcodec-dev \
+            libavformat-dev \
+            libswscale-dev \
+            libavdevice-dev \
+            libavfilter-dev \
+            libpostproc-dev \
+            libswresample-dev \
+            clang \
+            libclang-dev \
+            pkg-config
 
       - uses: dtolnay/rust-toolchain@stable
 
