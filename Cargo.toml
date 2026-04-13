@@ -1,7 +1,12 @@
 [package]
 name = "walllust"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
+description = "A high-performance, aesthetically pleasing wallpaper daemon and GUI for Wayland/Hyprland. Features smooth transitions, mpv-powered video wallpapers, and seamless Pywal color scheme integration."
+keywords = ["wallpaper", "wayland", "hyprland", "pywal", "daemon", "gui", "customization", "linux", "slint", "video-wallpaper"]
+categories = ["visualization", "multimedia", "gui"]
+repository = "https://github.com/rajchauhan28/WallLust"
+license = "MIT"
 
 [dependencies]
 slint = { version = "1.15.1" }
