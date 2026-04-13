@@ -37,3 +37,16 @@ path = "src/gui/main.rs"
 
 [build-dependencies]
 slint-build = "1.15.1"
+
+[package.metadata.deb]
+maintainer = "Raj Chauhan <raj@example.com>"
+copyright = "2026, Raj Chauhan"
+license-file = ["LICENSE", "0"]
+depends = "slint-cpp, mpvpaper, ffmpeg, python3-pywal"
+assets = [
+    ["target/release/walllust-daemon", "usr/bin/", "755"],
+    ["target/release/walllust-cli", "usr/bin/", "755"],
+    ["target/release/walllust-gui", "usr/bin/", "755"],
+    ["walllust-daemon.service", "usr/lib/systemd/user/", "644"],
+    ["walllust.desktop", "usr/share/applications/", "644"],
+]
