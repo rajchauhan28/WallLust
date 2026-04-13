@@ -143,7 +143,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                         let trans_dur = duration.unwrap_or(1000) as f64;
 
                         // Kill mpvpaper
-                        let _ = std::process::Command::new("pkill").arg("-9").arg("mpvpaper").output();
+                        let _ = tokio::process::Command::new("pkill").arg("-9").arg("mpvpaper").spawn();
 
                         for surface in app_state.surfaces_by_name("Wallpaper") {
                             let component = surface.component_instance();
@@ -235,9 +235,9 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
 fn handle_video_wallpaper(path: &str, wayland_display: Option<String>, hyprland_instance: Option<String>) {
     println!("Killing existing mpvpaper processes...");
-    let _ = std::process::Command::new("pkill").arg("-9").arg("mpvpaper").output();
+    let _ = tokio::process::Command::new("pkill").arg("-9").arg("mpvpaper").spawn();
     
-    let mut cmd = std::process::Command::new("mpvpaper");
+    let mut cmd = tokio::process::Command::new("mpvpaper");
     
     if let Some(wd) = wayland_display {
         println!("Setting WAYLAND_DISPLAY={}", wd);
@@ -266,10 +266,7 @@ fn handle_video_wallpaper(path: &str, wayland_display: Option<String>, hyprland_
     ]);
 
     println!("Executing: mpvpaper -f -o \"...\" ALL {}", path);
-    match cmd.spawn() {
-        Ok(_) => println!("mpvpaper started successfully"),
-        Err(e) => eprintln!("Failed to start mpvpaper: {}", e),
-    }
+    let _ = cmd.spawn();
 }
 
 async fn handle_client(mut stream: UnixStream, state: std::sync::Arc<tokio::sync::Mutex<DaemonState>>, tx: tokio::sync::mpsc::Sender<IPCCommand>) {
@@ -295,7 +292,7 @@ async fn handle_client(mut stream: UnixStream, state: std::sync::Arc<tokio::sync
                     s.save();
 
                     if s.pywal_enabled {
-                        let _ = std::process::Command::new("wal").args(&["-i", &path, "-n", "-e"]).output();
+                        let _ = tokio::process::Command::new("wal").args(&["-i", &path, "-n", "-e"]).spawn();
                     }
                     IPCResponse::Success(format!("Wallpaper set"))
                 },
