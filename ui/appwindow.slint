@@ -1,0 +1,454 @@
+import { VerticalBox, HorizontalBox, ScrollView, LineEdit, CheckBox, ComboBox } from "std-widgets.slint";
+
+export struct WallpaperData {
+    path: string,
+    thumbnail: image,
+}
+
+component GlassButton inherits Rectangle {
+    in property <string> text;
+    in property <color> accent: #00ffff;
+    callback clicked;
+    height: 35px;
+    width: 100px;
+    
+    inner := Rectangle {
+        border-radius: 17px;
+        background: touch.has-hover ? root.accent.with-alpha(0.15) : #ffffff.with-alpha(0.04);
+        border-width: 1px;
+        border-color: touch.has-hover ? root.accent.with-alpha(0.5) : #ffffff.with-alpha(0.1);
+        drop-shadow-blur: 10px;
+        drop-shadow-color: touch.has-hover ? root.accent.with-alpha(0.2) : #000000.with-alpha(0.1);
+
+        property <length> scale-offset: touch.pressed ? 2px : 0px;
+        x: scale-offset; y: scale-offset;
+        width: parent.width - (self.scale-offset * 2);
+        height: parent.height - (self.scale-offset * 2);
+
+        animate background, border-color, drop-shadow-color { duration: 250ms; }
+        animate x, y, width, height { duration: 150ms; }
+
+        Text {
+            text: root.text;
+            color: touch.has-hover ? root.accent : #cccccc;
+            font-size: 14px;
+            font-weight: 500;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+    }
+    
+    touch := TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
+export component AppWindow inherits Window {
+    title: "Walllust Wallpaper Changer";
+    min-width: 1120px;
+    preferred-width: 1120px;
+    min-height: 700px;
+    
+    // Ambient Atmosphere Gradient Background
+    background: @linear-gradient(135deg, #1A1A24, #12121c);
+
+    // Ambient Lighting (simulated radial light via rounded soft boxes)
+    Rectangle {
+        x: -200px; y: -200px; width: 600px; height: 600px;
+        background: #00ffff.with-alpha(0.05); // Cyan top-left ambient
+        border-radius: 300px;
+    }
+    Rectangle {
+        x: parent.width - 400px; y: parent.height - 400px; width: 600px; height: 600px;
+        background: #A020F0.with-alpha(0.05); // Purple bottom-right ambient
+        border-radius: 300px;
+    }
+
+    // Legacy Pywal integration properties
+    in-out property <color> background-color: #1A1A24;
+    in-out property <color> accent-color: #00ffff;
+    in-out property <color> text-color: #ffffff;
+    in-out property <color> secondary-color: #A020F0;
+
+    in-out property <[WallpaperData]> wallpapers: [];
+    in-out property <bool> pywal-enabled: true;
+    in-out property <string> search-query: "";
+    
+    in-out property <string> fill-mode: "Crop";
+    in-out property <string> transition-type: "fade";
+    in-out property <int> transition-duration: 1000;
+    in-out property <string> wallpapers-dir: "";
+    
+    property <bool> show-settings: false;
+    
+    // Preview Modal Logic
+    property <bool> show-preview: false;
+    property <string> preview-path: "";
+    in-out property <image> preview-image;
+
+    // Track active video task
+    in-out property <int> active-video-task: 0;
+
+    callback preview-opened(string);
+    callback preview-closed();
+
+    callback refresh-wallpapers();
+    callback set-wallpaper(string, string, int);
+    callback toggle-pywal(bool);
+    callback set-fill-mode(string);
+    callback update-default-transition(string, int);
+    callback set-wallpaper-dir(string);
+    callback search-wallpapers(string);
+    
+    changed search-query => {
+        root.search-wallpapers(root.search-query);
+    }
+    
+    VerticalBox {
+        padding: 24px;
+        spacing: 24px;
+        
+        // --- Floating Glass Top Bar ---
+        Rectangle {
+            height: 50px;
+            border-radius: 25px; // Pill shape
+            background: #ffffff.with-alpha(0.03);
+            border-width: 1px;
+            border-color: #ffffff.with-alpha(0.08);
+            drop-shadow-blur: 20px;
+            drop-shadow-color: #000000.with-alpha(0.3);
+            
+            HorizontalLayout {
+                padding-left: 20px;
+                padding-right: 10px;
+                alignment: space-between;
+                
+                // Title Area
+                HorizontalLayout {
+                    spacing: 8px;
+                    alignment: start;
+                    Text { text: "Walllust"; color: #ffffff; font-size: 20px; font-weight: 800; vertical-alignment: center; }
+                    Text { text: "| Wallpaper Changer"; color: #8a8a99; font-size: 16px; font-weight: 400; vertical-alignment: center; }
+                }
+                
+                // Right Area
+                HorizontalLayout {
+                    spacing: 12px;
+                    alignment: end;
+                    padding-top: 7px; // center alignment in fixed height wrapper
+                    
+                    // Floating Search Rectangle
+                    Rectangle {
+                        width: 250px; height: 35px;
+                        border-radius: 17px;
+                        background: #ffffff.with-alpha(0.02);
+                        border-width: 1px;
+                        border-color: #ffffff.with-alpha(0.08);
+                        
+                        HorizontalLayout {
+                            padding-left: 15px; padding-right: 15px; spacing: 8px;
+                            Text { text: "🔍"; color: #777; vertical-alignment: center; }
+                            Rectangle {
+                                horizontal-stretch: 1;
+                                TextInput {
+                                    width: 100%; height: 100%;
+                                    text <=> root.search-query;
+                                    color: #e0e0e0;
+                                    vertical-alignment: center;
+                                }
+                                if root.search-query == "" : Text {
+                                    text: "Search walls..."; color: #666; vertical-alignment: center; 
+                                }
+                            }
+                        }
+                    }
+                    
+                    GlassButton { text: "Refresh"; accent: #00ffff; clicked => { root.refresh-wallpapers(); } }
+                    GlassButton { text: "Settings"; accent: #A020F0; clicked => { root.show-settings = true; } }
+                }
+            }
+        }
+        
+        // --- Main Grid Floating Cards ---
+        Rectangle {
+            vertical-stretch: 1;
+            clip: true; // Keeps scrolling neat
+            
+            ScrollView {
+                width: 100%; height: 100%;
+                property <length> item-width: 230px;
+                property <length> item-height: 150px;
+                property <length> spacing: 25px;
+                property <int> cols: Math.max(1, Math.floor((self.width - spacing) / (item-width + spacing)));
+                
+                VerticalBox {
+                    padding: spacing; spacing: spacing; alignment: start;
+                    for row_idx in Math.floor((wallpapers.length + cols - 1) / cols) : HorizontalLayout {
+                        spacing: spacing; alignment: start;
+                        for col_idx in cols : Rectangle {
+                            property <int> idx: row_idx * cols + col_idx;
+                            width: item-width; height: item-height;
+                            opacity: idx < wallpapers.length ? 1.0 : 0.0;
+                            
+                            if idx < wallpapers.length : Rectangle {
+                                // Elevation mapping using coordinates padding (soft scale on hover)
+                                property <length> scale-offset: touch.has-hover ? 4px : 0px;
+                                x: -scale-offset; y: -scale-offset;
+                                width: parent.width + (self.scale-offset * 2);
+                                height: parent.height + (self.scale-offset * 2);
+
+                                border-radius: 16px;
+                                border-width: 1px;
+                                border-color: touch.has-hover ? #00ffff.with-alpha(0.6) : #ffffff.with-alpha(0.1);
+                                background: #13131b;
+                                
+                                drop-shadow-blur: touch.has-hover ? 20px : 12px;
+                                drop-shadow-color: touch.has-hover ? #00ffff.with-alpha(0.15) : #000000.with-alpha(0.4);
+                                
+                                animate x, y, width, height { duration: 250ms; easing: ease-out; }
+                                animate drop-shadow-blur, drop-shadow-color { duration: 300ms; easing: ease-out; }
+                                animate border-color { duration: 300ms; easing: ease-out; }
+                                
+                                clip: true;
+                                
+                                Image {
+                                    source: wallpapers[idx].thumbnail;
+                                    width: 100%; height: 100%;
+                                    image-fit: cover;
+                                    // Soft blur behind the cover can't be perfect, but overlay gives illusion
+                                }
+                                
+                                // Dimming overlay + text floating upwards
+                                Rectangle {
+                                    background: #000000.with-alpha(touch.has-hover ? 0.6 : 0.0);
+                                    animate background { duration: 300ms; easing: ease-out; }
+                                    
+                                    Text {
+                                        opacity: touch.has-hover ? 1.0 : 0.0;
+                                        y: touch.has-hover ? parent.height/2 - 10px : parent.height/2 + 5px;
+                                        text: "Preview";
+                                        color: #ffffff;
+                                        font-size: 16px;
+                                        font-weight: 700;
+                                        letter-spacing: 1px;
+                                        horizontal-alignment: center;
+                                        
+                                        animate opacity, y { duration: 250ms; easing: ease-out; }
+                                    }
+                                }
+                                
+                                touch := TouchArea {
+                                    clicked => { 
+                                        root.preview-path = wallpapers[idx].path;
+                                        root.preview-image = wallpapers[idx].thumbnail;
+                                        root.show-preview = true;
+                                        root.preview-opened(wallpapers[idx].path);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        // --- Lower Bar Footer ---
+        Rectangle {
+            height: 40px;
+            border-radius: 20px;
+            background: #ffffff.with-alpha(0.02);
+            border-width: 1px;
+            border-color: #ffffff.with-alpha(0.06);
+            drop-shadow-blur: 15px;
+            drop-shadow-color: #000000.with-alpha(0.3);
+            
+            HorizontalLayout {
+                padding-left: 20px; padding-right: 20px;
+                alignment: space-between;
+                
+                HorizontalLayout {
+                    spacing: 10px;
+                    Text { text: "✅"; vertical-alignment: center; }
+                    Text { 
+                        text: "Pywal Compatibility Enabled"; 
+                        color: #b0b0c0; 
+                        font-size: 13px; 
+                        font-weight: 500;
+                        vertical-alignment: center; 
+                    }
+                }
+                
+                Rectangle {} // Forced empty right side
+            }
+        }
+    }
+
+    // --- Modal Background Dimming Film ---
+    if (show-preview || show-settings) : Rectangle {
+        background: #07070a.with-alpha(0.75); // Atmospheric haze
+        // Smooth fade handling handled by logic appearance
+        TouchArea {
+            // Clicking background closes modals
+            clicked => { 
+                if (root.show-preview) { root.preview-closed(); }
+                root.show-preview = false; 
+                root.show-settings = false; 
+            }
+        }
+    }
+
+    // --- PREVIEW MODAL ---
+    if (show-preview) : Rectangle {
+        width: 700px;
+        height: 520px;
+        background: #181A24.with-alpha(0.85); 
+        border-radius: 20px; 
+        border-width: 1px; 
+        border-color: #00ffff.with-alpha(0.3);
+        
+        drop-shadow-blur: 50px;
+        drop-shadow-color: #000000.with-alpha(0.9);
+        
+        VerticalBox {
+            padding: 30px; spacing: 25px;
+            
+            Text { 
+                text: "Preview Selection"; 
+                color: #ffffff; 
+                font-size: 18px; 
+                font-weight: 700;
+                horizontal-alignment: center; 
+            }
+            
+            // Sub-card isolating focus picture
+            Rectangle {
+                vertical-stretch: 1;
+                border-radius: 12px;
+                border-width: 1px;
+                border-color: #ffffff.with-alpha(0.1);
+                clip: true;
+                Image {
+                    source: preview-image;
+                    width: 100%; height: 100%;
+                    image-fit: cover;
+                }
+            }
+            
+            HorizontalLayout {
+                spacing: 20px; alignment: center;
+                GlassButton { 
+                    text: "Apply to Desktop"; 
+                    width: 180px; 
+                    accent: #00ffff; 
+                    clicked => { 
+                        root.preview-closed();
+                        root.set-wallpaper(preview-path, root.transition-type, root.transition-duration); 
+                        root.show-preview = false;
+                    }
+                }
+                GlassButton { 
+                    text: "Cancel"; 
+                    width: 120px; 
+                    accent: #aaaaaa; 
+                    clicked => { 
+                        root.preview-closed();
+                        root.show-preview = false; 
+                    } 
+                }
+            }
+        }
+    }
+
+    // --- SETTINGS MODAL --- 
+    if (show-settings) : Rectangle {
+        width: 500px; height: 500px;
+        background: #181A24.with-alpha(0.85); 
+        border-radius: 20px; 
+        border-width: 1px; 
+        border-color: #A020F0.with-alpha(0.4);
+        drop-shadow-blur: 50px;
+        drop-shadow-color: #000000.with-alpha(0.9);
+
+        VerticalBox {
+            padding: 30px; spacing: 20px;
+
+            Text { text: "Application Settings"; color: #ffffff; font-size: 18px; font-weight: 700; horizontal-alignment: center; }
+
+            HorizontalLayout {
+                spacing: 12px; alignment: start;
+                CheckBox {
+                    text: "Enable Pywal Integration"; checked: pywal-enabled;
+                    toggled => { pywal-enabled = self.checked; toggle-pywal(self.checked); }
+                }
+            }
+
+            VerticalBox {
+                spacing: 8px; padding: 0;
+                Text { text: "Wallpaper Fill Mode:"; color: #a0a0b0; font-size: 13px; }
+                ComboBox {
+                    model: ["Crop", "Fit", "Stretch", "Center", "Tile"];
+                    current-value: fill-mode;
+                    selected(val) => { fill-mode = val; set-fill-mode(val); }
+                }
+            }
+
+            VerticalBox {
+                spacing: 8px; padding: 0;
+                Text { text: "Transition Type:"; color: #a0a0b0; font-size: 13px; }
+                ComboBox {
+                    model: ["fade", "slide-left", "slide-right", "slide-up", "slide-down", "zoom-in", "zoom-out"];
+                    current-value: transition-type;
+                    selected(val) => { transition-type = val; update-default-transition(val, transition-duration); }
+                }
+            }
+
+            VerticalBox {
+                spacing: 8px; padding: 0;
+                Text { text: "Transition Duration (ms):"; color: #a0a0b0; font-size: 13px; }
+                ComboBox {
+                    model: ["250", "500", "1000", "1500", "2000", "3000"];
+                    current-value: "\{transition-duration}";
+                    selected(val) => { 
+                        transition-duration = val.to-float();
+                        update-default-transition(transition-type, transition-duration);
+                    }
+                }
+            }
+
+            VerticalBox {
+                spacing: 8px; padding: 0;
+                Text { text: "Wallpaper Directory:"; color: #a0a0b0; font-size: 13px; }
+                HorizontalLayout {
+                    spacing: 15px;
+                    dir-input := LineEdit {
+                        text: wallpapers-dir;
+                        placeholder-text: "Path to wallpapers folder";
+                        horizontal-stretch: 1;
+                    }
+                    GlassButton {
+                        text: "Apply Dir";
+                        width: 100px;
+                        accent: #A020F0;
+                        clicked => { 
+                            wallpapers-dir = dir-input.text;
+                            set-wallpaper-dir(dir-input.text);
+                            refresh-wallpapers();
+                        }
+                    }
+                }
+            }
+
+            Rectangle {} // Spacer
+
+            HorizontalLayout {
+                alignment: center;
+                GlassButton { 
+                    text: "Close"; 
+                    width: 140px;
+                    accent: #A020F0;
+                    clicked => { show-settings = false; } 
+                }
+            }
+        }
+    }
+}

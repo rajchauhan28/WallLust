@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=Walllust
+Comment=Simple and powerful wallpaper manager with Pywal support
+Exec=%h/.local/bin/walllust-gui
+Icon=wallpaper
+Terminal=false
+Type=Application
+Categories=Settings;DesktopSettings;
+Keywords=wallpaper;background;pywal;

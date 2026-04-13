@@ -1,0 +1,49 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwayland-dev libxkbcommon-dev libegl1-mesa-dev libfontconfig1-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-deb
+        run: cargo install cargo-deb
+
+      - name: Build
+        run: cargo build --release
+
+      - name: Create Debian Package
+        run: cargo deb
+
+      - name: Create Release Archive
+        run: |
+          mkdir -p dist
+          cp target/release/walllust-daemon dist/
+          cp target/release/walllust-cli dist/
+          cp target/release/walllust-gui dist/
+          cp walllust-daemon.service dist/
+          cp walllust.desktop dist/
+          tar -czvf walllust-x86_64.tar.gz -C dist .
+
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            target/debian/*.deb
+            walllust-x86_64.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

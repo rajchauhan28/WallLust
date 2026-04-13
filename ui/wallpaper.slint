@@ -1,0 +1,88 @@
+export component Wallpaper inherits Window {
+    in-out property <image> image1;
+    in-out property <image> image2;
+    in-out property <bool> active_is_1: false; // Start on false, first image goes to 1 and flips to true
+    in-out property <string> transition_type: "fade";
+    in-out property <float> transition_duration_ms: 1000.0;
+    in-out property <bool> surface_visible: true;
+
+    background: surface_visible ? black : transparent;
+
+    Rectangle {
+        width: 100%;
+        height: 100%;
+        visible: surface_visible;
+
+        // Image 1
+        Image {
+            source: image1;
+            image-fit: cover;
+            
+            property <length> target-width: active_is_1 ? parent.width : (
+                transition_type == "zoom-in" ? parent.width * 2 :
+                transition_type == "zoom-out" ? 0px : parent.width
+            );
+            property <length> target-height: active_is_1 ? parent.height : (
+                transition_type == "zoom-in" ? parent.height * 2 :
+                transition_type == "zoom-out" ? 0px : parent.height
+            );
+
+            width: target-width;
+            height: target-height;
+
+            x: active_is_1 ? 0 : (
+                transition_type == "slide-left" ? -parent.width :
+                transition_type == "slide-right" ? parent.width :
+                transition_type == "zoom-in" || transition_type == "zoom-out" ? (parent.width - target-width) / 2 :
+                0
+            );
+
+            y: active_is_1 ? 0 : (
+                transition_type == "slide-up" ? -parent.height :
+                transition_type == "slide-down" ? parent.height :
+                transition_type == "zoom-in" || transition_type == "zoom-out" ? (parent.height - target-height) / 2 :
+                0
+            );
+
+            opacity: active_is_1 ? 1.0 : 0.0;
+            
+            animate opacity, x, y, width, height { duration: transition_duration_ms * 1ms; easing: ease-in-out; }
+        }
+
+        // Image 2
+        Image {
+            source: image2;
+            image-fit: cover;
+            
+            property <length> target-width: !active_is_1 ? parent.width : (
+                transition_type == "zoom-in" ? parent.width * 2 :
+                transition_type == "zoom-out" ? 0px : parent.width
+            );
+            property <length> target-height: !active_is_1 ? parent.height : (
+                transition_type == "zoom-in" ? parent.height * 2 :
+                transition_type == "zoom-out" ? 0px : parent.height
+            );
+
+            width: target-width;
+            height: target-height;
+
+            x: !active_is_1 ? 0 : (
+                transition_type == "slide-left" ? -parent.width :
+                transition_type == "slide-right" ? parent.width :
+                transition_type == "zoom-in" || transition_type == "zoom-out" ? (parent.width - target-width) / 2 :
+                0
+            );
+
+            y: !active_is_1 ? 0 : (
+                transition_type == "slide-up" ? -parent.height :
+                transition_type == "slide-down" ? parent.height :
+                transition_type == "zoom-in" || transition_type == "zoom-out" ? (parent.height - target-height) / 2 :
+                0
+            );
+
+            opacity: !active_is_1 ? 1.0 : 0.0;
+            
+            animate opacity, x, y, width, height { duration: transition_duration_ms * 1ms; easing: ease-in-out; }
+        }
+    }
+}
