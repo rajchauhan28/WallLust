@@ -1,0 +1,39 @@
+[package]
+name = "walllust"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+slint = { version = "1.15.1" }
+slint-interpreter = "1.15.1"
+tokio = { version = "1.50.0", features = ["full"] }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.149"
+image = "0.25.9"
+palette = "0.7.6"
+fxhash = "0.2.1"
+walkdir = "2.5.0"
+clap = { version = "4.5.60", features = ["derive"] }
+futures = "0.3"
+ctrlc = "3.4"
+dirs = "6.0.0"
+layer-shika = "0.3.1"
+libc = "0.2"
+winit = "0.30.13"
+anyhow = "1.0"
+ffmpeg-next = "8.1.0"
+
+[[bin]]
+name = "walllust-daemon"
+path = "src/daemon/main.rs"
+
+[[bin]]
+name = "walllust-cli"
+path = "src/cli/main.rs"
+
+[[bin]]
+name = "walllust-gui"
+path = "src/gui/main.rs"
+
+[build-dependencies]
+slint-build = "1.15.1"

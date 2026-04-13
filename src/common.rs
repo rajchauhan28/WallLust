@@ -56,3 +56,16 @@ pub fn get_socket_path() -> String {
     }
     "/tmp/walllust.sock".to_string()
 }
+
+#[allow(dead_code)]
+pub fn check_dependencies() -> Vec<String> {
+    let mut missing = Vec::new();
+    let deps = ["ffmpeg", "mpvpaper", "wal"];
+    for dep in deps {
+        if std::process::Command::new("which").arg(dep).output().is_err() || 
+           !std::process::Command::new("which").arg(dep).output().unwrap().status.success() {
+            missing.push(dep.to_string());
+        }
+    }
+    missing
+}

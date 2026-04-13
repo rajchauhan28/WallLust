@@ -77,6 +77,12 @@ impl DaemonState {
 #[tokio::main]
 async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
+
+    let missing = common::check_dependencies();
+    if !missing.is_empty() {
+        eprintln!("Warning: Missing dependencies: {}", missing.join(", "));
+    }
+
     let socket_path = common::get_socket_path();
 
     if Path::new(&socket_path).exists() {
