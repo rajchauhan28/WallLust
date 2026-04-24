@@ -8,6 +8,8 @@ ExecStart=%h/.local/bin/walllust-daemon
 Restart=always
 RestartSec=3
 Slice=session.slice
+Environment=WAYLAND_DISPLAY
+Environment=XDG_RUNTIME_DIR
 
 [Install]
 WantedBy=default.target

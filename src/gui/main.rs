@@ -115,6 +115,12 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         });
     });
 
+    window.on_toggle_preview(move |enabled: bool| {
+        tokio::spawn(async move {
+            let _ = send_command(socket_path, IPCCommand::TogglePreview(enabled)).await;
+        });
+    });
+
     window.on_set_fill_mode(move |mode: slint::SharedString| {
         let fill = match mode.as_str() {
             "Crop" => common::WallpaperFill::Crop,
@@ -152,10 +158,11 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
             let _ = stream.shutdown().await;
             let mut buffer = Vec::new();
             if let Ok(_) = stream.read_to_end(&mut buffer).await {
-                if let Ok(IPCResponse::Status { wallpaper: _, pywal, wallpapers_dir, default_transition, default_duration }) = serde_json::from_slice::<IPCResponse>(&buffer) {
+                if let Ok(IPCResponse::Status { wallpaper: _, pywal, preview_enabled, wallpapers_dir, default_transition, default_duration }) = serde_json::from_slice::<IPCResponse>(&buffer) {
                     let _ = slint::invoke_from_event_loop(move || {
                         if let Some(h) = handle_status.upgrade() {
                             h.set_pywal_enabled(pywal);
+                            h.set_enable_preview(preview_enabled);
                             h.set_wallpapers_dir(wallpapers_dir.into());
                             h.set_transition_type(default_transition.into());
                             h.set_transition_duration(default_duration as i32);

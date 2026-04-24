@@ -50,6 +50,7 @@ mkdir -p "$INSTALL_DIR"
 
 # 4. Install binaries
 echo -e "${BLUE}Installing binaries to $INSTALL_DIR...${NC}"
+rm -f "$INSTALL_DIR/walllust-daemon" "$INSTALL_DIR/walllust-cli" "$INSTALL_DIR/walllust-gui"
 cp $TARGET_DIR/walllust-daemon "$INSTALL_DIR/"
 cp $TARGET_DIR/walllust-cli "$INSTALL_DIR/"
 cp $TARGET_DIR/walllust-gui "$INSTALL_DIR/"
@@ -58,12 +59,14 @@ cp $TARGET_DIR/walllust-gui "$INSTALL_DIR/"
 echo -e "${BLUE}Setting up systemd user service...${NC}"
 SERVICE_DIR="$HOME/.config/systemd/user"
 mkdir -p "$SERVICE_DIR"
+rm -f "$SERVICE_DIR/walllust-daemon.service"
 cp walllust-daemon.service "$SERVICE_DIR/"
 
 # 6. Set up desktop entry
 echo -e "${BLUE}Setting up desktop entry...${NC}"
 DESKTOP_DIR="$HOME/.local/share/applications"
 mkdir -p "$DESKTOP_DIR"
+rm -f "$DESKTOP_DIR/walllust.desktop"
 # Replace %h with actual home path in the desktop file during copy
 sed "s|%h|$HOME|g" walllust.desktop > "$DESKTOP_DIR/walllust.desktop"
 

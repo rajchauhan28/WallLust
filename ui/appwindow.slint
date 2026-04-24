@@ -72,6 +72,7 @@ export component AppWindow inherits Window {
 
     in-out property <[WallpaperData]> wallpapers: [];
     in-out property <bool> pywal-enabled: true;
+    in-out property <bool> enable-preview: true;
     in-out property <string> search-query: "";
     
     in-out property <string> fill-mode: "Crop";
@@ -95,6 +96,7 @@ export component AppWindow inherits Window {
     callback refresh-wallpapers();
     callback set-wallpaper(string, string, int);
     callback toggle-pywal(bool);
+    callback toggle-preview(bool);
     callback set-fill-mode(string);
     callback update-default-transition(string, int);
     callback set-wallpaper-dir(string);
@@ -238,14 +240,17 @@ export component AppWindow inherits Window {
                                 }
                                 
                                 touch := TouchArea {
-                                    clicked => { 
-                                        root.preview-path = wallpapers[idx].path;
-                                        root.preview-image = wallpapers[idx].thumbnail;
-                                        root.show-preview = true;
-                                        root.preview-opened(wallpapers[idx].path);
+                                    clicked => {
+                                        if (root.enable-preview) {
+                                            root.preview-path = wallpapers[idx].path;
+                                            root.preview-image = wallpapers[idx].thumbnail;
+                                            root.show-preview = true;
+                                            root.preview-opened(wallpapers[idx].path);
+                                        } else {
+                                            root.set-wallpaper(wallpapers[idx].path, root.transition-type, root.transition-duration);
+                                        }
                                     }
-                                }
-                            }
+                                }                            }
                         }
                     }
                 }
@@ -379,6 +384,14 @@ export component AppWindow inherits Window {
                 CheckBox {
                     text: "Enable Pywal Integration"; checked: pywal-enabled;
                     toggled => { pywal-enabled = self.checked; toggle-pywal(self.checked); }
+                }
+            }
+
+            HorizontalLayout {
+                spacing: 12px; alignment: start;
+                CheckBox {
+                    text: "Enable Wallpaper Previews"; checked: root.enable-preview;
+                    toggled => { root.enable-preview = self.checked; root.toggle-preview(self.checked); }
                 }
             }
 
