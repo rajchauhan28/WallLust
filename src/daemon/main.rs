@@ -38,9 +38,15 @@ struct Args {
 struct DaemonState {
     current_wallpaper: Option<String>,
     pywal_enabled: bool,
+    #[serde(default = "default_preview_enabled")]
+    preview_enabled: bool,
     wallpapers_dir: PathBuf,
     default_transition: String,
     default_duration: u32,
+}
+
+fn default_preview_enabled() -> bool {
+    true
 }
 
 impl DaemonState {
@@ -59,7 +65,7 @@ impl DaemonState {
                 return state;
             }
         }
-        
+
         let wallpapers_dir = args.wallpapers_dir.clone().unwrap_or_else(|| {
             dirs::home_dir().unwrap().join("Pictures/wallpapers")
         });
@@ -67,13 +73,13 @@ impl DaemonState {
         DaemonState {
             current_wallpaper: None,
             pywal_enabled: !args.no_pywal,
+            preview_enabled: true,
             wallpapers_dir,
             default_transition: args.transition.clone(),
             default_duration: args.duration,
         }
     }
 }
-
 #[tokio::main]
 async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
@@ -148,8 +154,8 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                         let trans_type = transition.unwrap_or_else(|| "fade".to_string());
                         let trans_dur = duration.unwrap_or(1000) as f64;
 
-                        // Kill mpvpaper
-                        let _ = tokio::process::Command::new("pkill").arg("-9").arg("mpvpaper").spawn();
+                        // Kill mpvpaper gracefully
+                        kill_mpvpaper();
 
                         for surface in app_state.surfaces_by_name("Wallpaper") {
                             let component = surface.component_instance();
@@ -239,39 +245,51 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     }
 }
 
+fn kill_mpvpaper() {
+    // Try graceful SIGTERM first, then SIGKILL after short delay
+    let _ = std::process::Command::new("pkill").arg("-TERM").arg("mpvpaper").spawn();
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    let _ = std::process::Command::new("pkill").arg("-KILL").arg("mpvpaper").spawn();
+}
+
+fn get_mpvpaper_path() -> String {
+    // Try common paths first for reliability
+    let paths = [
+        "/usr/bin/mpvpaper",
+        "/usr/local/bin/mpvpaper",
+    ];
+    for p in &paths {
+        if std::path::Path::new(p).exists() {
+            return p.to_string();
+        }
+    }
+    "mpvpaper".to_string()
+}
+
 fn handle_video_wallpaper(path: &str, wayland_display: Option<String>, hyprland_instance: Option<String>) {
-    println!("Killing existing mpvpaper processes...");
-    let _ = tokio::process::Command::new("pkill").arg("-9").arg("mpvpaper").spawn();
-    
-    let mut cmd = tokio::process::Command::new("mpvpaper");
-    
+    println!("Launching mpvpaper with video: {}", path);
+    kill_mpvpaper();
+    // Give time for old process to fully terminate
+    std::thread::sleep(std::time::Duration::from_millis(500));
+
+    let mpvpaper_path = get_mpvpaper_path();
+
+    // Build the mpvpaper command
+    let cmd_str = format!("{} -f -o \"--no-audio --loop --hwdec=auto --panscan=1.0\" ALL {}", mpvpaper_path, path);
+
+    // Set environment and run via bash
+    let mut cmd = std::process::Command::new("/bin/bash");
+    cmd.args(["-c", &cmd_str]);
+
     if let Some(wd) = wayland_display {
-        println!("Setting WAYLAND_DISPLAY={}", wd);
         cmd.env("WAYLAND_DISPLAY", wd);
     }
     if let Some(hi) = hyprland_instance {
-        println!("Setting HYPRLAND_INSTANCE_SIGNATURE={}", hi);
         cmd.env("HYPRLAND_INSTANCE_SIGNATURE", hi);
     }
-
-    // Explicitly set some common env vars just in case
     cmd.env("XDG_RUNTIME_DIR", std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| format!("/run/user/{}", unsafe { libc::getuid() })));
-    
-    // Ensure PATH includes common locations
-    let current_path = std::env::var("PATH").unwrap_or_default();
-    let home = dirs::home_dir().unwrap();
-    let local_bin = home.join(".local/bin");
-    let new_path = format!("{}:{}:/usr/local/bin:/usr/bin:/bin", current_path, local_bin.display());
-    cmd.env("PATH", new_path);
 
-    cmd.args(&[
-        "-f", 
-        "-o", "--no-audio --loop --hwdec=auto --panscan=1.0", 
-        "ALL", 
-        path
-    ]);
-
-    println!("Executing: mpvpaper -f -o \"...\" ALL {}", path);
+    println!("Executing: {}", cmd_str);
     let _ = cmd.spawn();
 }
 
@@ -298,7 +316,21 @@ async fn handle_client(mut stream: UnixStream, state: std::sync::Arc<tokio::sync
                     s.save();
 
                     if s.pywal_enabled {
-                        let _ = tokio::process::Command::new("wal").args(&["-i", &path, "-n", "-e"]).spawn();
+                        let path_buf = PathBuf::from(&path);
+                        let ext = path_buf.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+                        let video_extensions = ["mp4", "mkv", "webm", "mov", "avi", "flv", "wmv", "mpg", "mpeg", "gif"];
+                        let wal_path = if video_extensions.contains(&ext.as_str()) {
+                            let cache_dir = dirs::cache_dir().unwrap().join("walllust/thumbnails");
+                            let thumb_path = cache_dir.join(format!("{:x}.jpg", fxhash::hash64(&path)));
+                            if thumb_path.exists() {
+                                thumb_path.to_string_lossy().to_string()
+                            } else {
+                                path.clone() // Fallback to raw video if no thumbnail
+                            }
+                        } else {
+                            path.clone()
+                        };
+                        let _ = tokio::process::Command::new("wal").args(&["-i", &wal_path, "-n", "-e"]).spawn();
                     }
                     IPCResponse::Success(format!("Wallpaper set"))
                 },
@@ -318,10 +350,17 @@ async fn handle_client(mut stream: UnixStream, state: std::sync::Arc<tokio::sync
                     IPCResponse::Status {
                         wallpaper: s.current_wallpaper.clone(),
                         pywal: s.pywal_enabled,
+                        preview_enabled: s.preview_enabled,
                         wallpapers_dir: s.wallpapers_dir.to_string_lossy().to_string(),
                         default_transition: s.default_transition.clone(),
                         default_duration: s.default_duration,
                     }
+                },
+                Ok(IPCCommand::TogglePreview(enabled)) => {
+                    let mut s = state.lock().await;
+                    s.preview_enabled = enabled;
+                    s.save();
+                    IPCResponse::Success(format!("Preview set to {}", enabled))
                 },
                 Ok(IPCCommand::SetPywal(enabled)) => {
                     let mut s = state.lock().await;
