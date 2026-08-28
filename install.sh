@@ -57,10 +57,13 @@ mkdir -p "$INSTALL_DIR"
 # 4. Install binaries
 echo -e "${BLUE}Installing binaries to $INSTALL_DIR...${NC}"
 killall walllust-gui || true
-rm -f "$INSTALL_DIR/walllust-daemon" "$INSTALL_DIR/walllust-cli" "$INSTALL_DIR/walllust-gui"
-cp $TARGET_DIR/walllust-daemon "$INSTALL_DIR/"
-cp $TARGET_DIR/walllust-cli "$INSTALL_DIR/"
-cp $TARGET_DIR/walllust-gui "$INSTALL_DIR/"
+# walllust-renderer is resolved by the daemon as a sibling of its own
+# executable, so leaving it out breaks every web-scene wallpaper with
+# "Failed to spawn walllust-renderer!".
+for binary in walllust-daemon walllust-cli walllust-gui walllust-renderer; do
+    rm -f "$INSTALL_DIR/$binary"
+    cp "$TARGET_DIR/$binary" "$INSTALL_DIR/"
+done
 
 # 5. Set up systemd user service
 echo -e "${BLUE}Setting up systemd user service...${NC}"
@@ -78,8 +81,10 @@ echo -e "${BLUE}Setting up desktop entry...${NC}"
 DESKTOP_DIR="$HOME/.local/share/applications"
 mkdir -p "$DESKTOP_DIR"
 rm -f "$DESKTOP_DIR/walllust.desktop"
-# Replace %h with actual home path in the desktop file during copy
-sed "s|%h|$HOME|g" walllust.desktop > "$DESKTOP_DIR/walllust.desktop"
+# Exec= is a bare command name resolved through PATH, so no rewriting is
+# needed here. Ensure ~/.local/bin is on PATH for your session.
+cp walllust.desktop "$DESKTOP_DIR/walllust.desktop"
+chmod 644 "$DESKTOP_DIR/walllust.desktop"
 
 # 7. Reload systemd, enable and start the service
 echo -e "${BLUE}Enabling and starting walllust-daemon service...${NC}"
