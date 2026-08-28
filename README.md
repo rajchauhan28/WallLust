@@ -13,34 +13,65 @@ WallLust is a modern wallpaper daemon and GUI for Wayland and Hyprland. It featu
 
 ## Installation
 
-### Dependencies
+Prebuilt packages for Arch, Debian and Fedora are attached to every
+[release](https://github.com/rajchauhan28/WallLust/releases). Each one is built
+inside that distribution's own container, so it links against the right glibc.
 
-Ensure you have the following installed:
+### Arch Linux
 
-- `slint`
-- `mpvpaper` (for video wallpapers)
-- `ffmpeg` (for video thumbnails)
-- `python-pywal` (for color scheme generation)
+```bash
+sudo pacman -U walllust-*-x86_64.pkg.tar.zst
+```
 
-### From Source
+### Debian / Ubuntu
+
+Requires Debian 13 (trixie) or newer, or Ubuntu 24.04 or newer:
+`walllust-renderer` needs `gtk4-layer-shell`, which Debian 12 does not
+package, and GTK 4.12 or later.
+
+```bash
+sudo apt install ./walllust_*_amd64.deb
+```
+
+### Fedora
+
+```bash
+sudo dnf install ./walllust-*.x86_64.rpm
+```
+
+### From source
+
+Build dependencies: a Rust toolchain, `clang`, `pkg-config`, and the
+development headers for wayland, xkbcommon, EGL, fontconfig, GTK 4,
+gtk4-layer-shell, WebKitGTK 6, Qt 6 and FFmpeg.
 
 ```bash
 git clone https://github.com/rajchauhan28/WallLust
 cd WallLust
-cargo build --release
+./install.sh
 ```
 
-### Debian/Ubuntu
+`install.sh` installs into `~/.local`, and points the systemd user unit at
+`~/.local/bin` instead of the `/usr/bin` path the packages use.
 
-Download the `.deb` package from the [Releases](https://github.com/rajchauhan28/WallLust/releases) page and install it:
+### Optional runtime tools
+
+These are not required to start WallLust, but individual features need them:
+
+| Tool | Needed for |
+| --- | --- |
+| `mpvpaper` | video wallpapers |
+| `wal` (python-pywal) | colour scheme generation |
+| `parec` (PipeWire/PulseAudio) | audio-reactive scene wallpapers |
+| `hyprctl` (Hyprland) | cursor tracking in scene wallpapers |
+
+### Building the packages yourself
 
 ```bash
-sudo dpkg -i walllust_*.deb
+./scripts/build-packages.sh all      # or: arch | deb | rpm
 ```
 
-### Arch Linux
-
-Use the provided `PKGBUILD` or install from AUR (once available).
+Requires Docker. Packages land in `dist/`.
 
 ## Usage
 
