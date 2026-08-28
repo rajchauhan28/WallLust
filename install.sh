@@ -35,6 +35,12 @@ if ! command -v mpvpaper &> /dev/null; then
 fi
 
 # 1. Build the project
+# Check if we are on an Arch-based system and install new WebKit renderer dependencies
+if command -v pacman &> /dev/null; then
+    echo "Installing required WebKit dependencies (webkitgtk-6.0, gtk4-layer-shell)..."
+    sudo pacman -S --needed --noconfirm webkitgtk-6.0 gtk4-layer-shell || true
+fi
+
 echo -e "${BLUE}Building project in $BUILD_MODE mode...${NC}"
 $CARGO_CMD
 
@@ -50,6 +56,7 @@ mkdir -p "$INSTALL_DIR"
 
 # 4. Install binaries
 echo -e "${BLUE}Installing binaries to $INSTALL_DIR...${NC}"
+killall walllust-gui || true
 cp $TARGET_DIR/walllust-daemon "$INSTALL_DIR/"
 cp $TARGET_DIR/walllust-cli "$INSTALL_DIR/"
 cp $TARGET_DIR/walllust-gui "$INSTALL_DIR/"
