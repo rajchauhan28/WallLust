@@ -38,6 +38,18 @@ enum Commands {
     Status,
     /// Set wallpaper directory
     Dir { path: String },
+    /// Show wallpaper history (recently used)
+    History,
+    /// Revert to previous wallpaper
+    Revert,
+    /// Add a scheduled wallpaper change (format: "HH:MM")
+    Schedule { 
+        #[arg(short, long)]
+        time: Option<String>,
+        path: Option<String>,
+    },
+    /// Toggle schedule on/off
+    ToggleSchedule,
 }
 
 #[tokio::main]
@@ -63,6 +75,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Commands::List => IPCCommand::ListWallpapers,
         Commands::Status => IPCCommand::GetStatus,
         Commands::Dir { path } => IPCCommand::SetWallpaperDir(path),
+        Commands::History => IPCCommand::GetHistory,
+        Commands::Revert => IPCCommand::RevertHistory,
+        Commands::Schedule { time, path } => {
+            if let (Some(t), Some(p)) = (time, path) {
+                IPCCommand::ScheduleSet { time: t, path: p }
+            } else {
+                eprintln!("Error: --time and path are required for schedule");
+                std::process::exit(1);
+            }
+        },
+        Commands::ToggleSchedule => IPCCommand::ToggleSchedule,
     };
 
     let cmd_bytes = serde_json::to_vec(&ipc_cmd)?;
@@ -76,11 +99,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     match response {
         IPCResponse::Success(msg) => println!("Success: {}", msg),
         IPCResponse::Error(msg) => println!("Error: {}", msg),
-        IPCResponse::Status { wallpaper, pywal, wallpapers_dir, .. } => {
+        IPCResponse::Status { wallpaper, pywal, wallpapers_dir, default_transition, default_duration, .. } => {
             println!("Status:");
             println!("  Wallpaper: {:?}", wallpaper);
             println!("  Pywal: {}", pywal);
             println!("  Wallpaper Directory: {}", wallpapers_dir);
+            println!("  Default Transition: {} ({}ms)", default_transition, default_duration);
         },
         IPCResponse::WallpaperList(walls) => {
             println!("Wallpapers:");
@@ -90,7 +114,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         },
         IPCResponse::WallpaperDir(dir) => {
             println!("Wallpaper Directory: {}", dir);
-        }
+        },
+        IPCResponse::History(entries) => {
+            if entries.is_empty() {
+                println!("No wallpaper history found.");
+            } else {
+                println!("Wallpaper History ({} entries):", entries.len());
+                for (i, entry) in entries.iter().enumerate().take(10) {
+                    let ts = std::time::UNIX_EPOCH + std::time::Duration::from_secs(entry.timestamp as u64);
+                    println!("  {}. {} ({:?})", i + 1, entry.path, ts);
+                }
+            }
+        },
+        IPCResponse::Schedule { enabled, schedule } => {
+            println!("Schedule: {}", if enabled { "enabled" } else { "disabled" });
+            if schedule.is_empty() {
+                println!("  No scheduled wallpapers.");
+            } else {
+                println!("  Scheduled entries:");
+                for entry in schedule {
+                    println!("    {}: {}", entry.time, entry.path);
+                }
+            }
+        },
     }
 
     Ok(())

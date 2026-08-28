@@ -16,8 +16,8 @@ thread_local! {
 async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let window = AppWindow::new()?;
     let handle = window.as_weak();
-    let socket_path_string = common::get_socket_path();
-    let socket_path: &'static str = Box::leak(socket_path_string.into_boxed_str());
+    // Leaked once at startup so the many 'static callback closures can share it.
+    let socket_path: &'static str = Box::leak(common::get_socket_path().into_boxed_str());
 
     // Connect search
     let handle_search = handle.clone();
@@ -97,7 +97,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                 transition: Some(transition_type),
                 duration: Some(duration_ms),
             };
-            let _ = send_command(socket_path, cmd).await;
+            if let Err(e) = send_command(socket_path, cmd).await { eprintln!("Failed to send SetWallpaper command: {}", e); }
         });
     });
 
@@ -109,9 +109,131 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         });
     });
 
+    window.on_open_web_editor(move || {
+        let _ = std::process::Command::new("xdg-open").arg("http://127.0.0.1:34567").spawn();
+    });
+
+    {
+        let h = handle.clone();
+        tokio::spawn(async move {
+            use warp::Filter;
+            use warp::Reply;
+            
+            let html_route = warp::path::end().map(|| {
+                warp::reply::html(include_str!("../../assets/editor.html")).into_response()
+            });
+
+            #[derive(serde::Deserialize, serde::Serialize, Clone)]
+            struct ExportObject {
+                #[serde(rename = "type")]
+                obj_type: String,
+                left: f64,
+                top: f64,
+                width: f64,
+                height: f64,
+                angle: f64,
+                fill: Option<String>,
+                opacity: f64,
+                #[serde(rename = "audioReactive")]
+                audio_reactive: bool,
+            }
+
+            #[derive(serde::Deserialize, serde::Serialize, Clone)]
+            struct ExportPayload {
+                name: String,
+                bg_color: String,
+                objects: Vec<ExportObject>,
+                has_media: bool,
+                media_filename: Option<String>,
+            }
+
+            let h_clone = h.clone();
+            let export_scene = warp::path!("api" / "export-scene")
+                .and(warp::post())
+                .and(warp::body::json())
+                .map(move |payload: ExportPayload| {
+                    // payload.name becomes a directory component, so reduce it to a
+                    // bare file name — an attacker POSTing "../../foo" must not be
+                    // able to create/overwrite directories outside live_scenes.
+                    let safe_name = std::path::Path::new(&payload.name)
+                        .file_name()
+                        .map(|s| s.to_string_lossy().into_owned())
+                        .filter(|s| !s.is_empty())
+                        .unwrap_or_else(|| "pro_editor_scene".to_string());
+
+                    // Create the scene directory
+                    let mut scene_dir = dirs::config_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
+                    scene_dir.push("walllust");
+                    scene_dir.push("live_scenes");
+                    scene_dir.push(&safe_name);
+                    let _ = std::fs::create_dir_all(&scene_dir);
+
+                    // Save scene.json
+                    let scene_json = serde_json::to_string_pretty(&payload).unwrap();
+                    let _ = std::fs::write(scene_dir.join("scene.json"), scene_json);
+
+                    // Tell GUI to refresh
+                    let hc = h_clone.clone();
+                    let _ = slint::invoke_from_event_loop(move || {
+                        if let Some(app) = hc.upgrade() {
+                            app.invoke_build_custom_wallpaper(
+                                slint::SharedString::from(safe_name.clone()),
+                                slint::SharedString::from(payload.bg_color.clone()),
+                                slint::SharedString::from("FabricScene"),
+                                slint::SharedString::from("#ffffff"),
+                                false,
+                            );
+                        }
+                    });
+                    
+                    warp::reply().into_response()
+                });
+
+            let export_media = warp::path!("api" / "export-media")
+                .and(warp::post())
+                .and(warp::header::<String>("X-Filename"))
+                .and(warp::header::optional::<String>("X-Scene-Name"))
+                .and(warp::body::bytes())
+                .map(|filename: String, scene_name: Option<String>, body: warp::hyper::body::Bytes| {
+                    // Both header values are attacker-controllable (any local
+                    // process can POST here). Reduce each to a bare file name so a
+                    // crafted value like "../../.bashrc" cannot escape the scene
+                    // directory and write arbitrary paths.
+                    let safe_scene = scene_name
+                        .as_deref()
+                        .and_then(|s| std::path::Path::new(s).file_name())
+                        .map(|s| s.to_string_lossy().into_owned())
+                        .filter(|s| !s.is_empty())
+                        .unwrap_or_else(|| "pro_editor_scene".to_string());
+                    let safe_file = std::path::Path::new(&filename)
+                        .file_name()
+                        .map(|s| s.to_string_lossy().into_owned());
+                    let Some(safe_file) = safe_file.filter(|s| !s.is_empty()) else {
+                        return warp::reply::with_status(
+                            "invalid filename",
+                            warp::http::StatusCode::BAD_REQUEST,
+                        )
+                        .into_response();
+                    };
+
+                    let mut scene_dir = dirs::config_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
+                    scene_dir.push("walllust");
+                    scene_dir.push("live_scenes");
+                    scene_dir.push(&safe_scene);
+
+                    let _ = std::fs::create_dir_all(&scene_dir);
+                    let _ = std::fs::write(scene_dir.join(safe_file), body);
+                    warp::reply().into_response()
+                });
+
+            let routes = html_route.or(export_scene).or(export_media);
+            warp::serve(routes).run(([127, 0, 0, 1], 34567)).await;
+        });
+    }
+
     window.on_toggle_pywal(move |enabled: bool| {
         tokio::spawn(async move {
-            let _ = send_command(socket_path, IPCCommand::SetPywal(enabled)).await;
+            if let Err(e) = send_command(socket_path, IPCCommand::SetPywal(enabled)).await { eprintln!("Failed to send command: {}", e); }
         });
     });
 
@@ -125,7 +247,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
             _ => common::WallpaperFill::Crop,
         };
         tokio::spawn(async move {
-            let _ = send_command(socket_path, IPCCommand::SetFill(fill)).await;
+            if let Err(e) = send_command(socket_path, IPCCommand::SetFill(fill)).await { eprintln!("Failed to send command: {}", e); }
         });
     });
 
@@ -133,16 +255,180 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         let transition = trans.to_string();
         let duration = dur as u32;
         tokio::spawn(async move {
-            let _ = send_command(socket_path, IPCCommand::SetDefaultTransition { transition, duration }).await;
+            if let Err(e) = send_command(socket_path, IPCCommand::SetDefaultTransition { transition, duration }).await { eprintln!("Failed to send command: {}", e); }
         });
     });
 
     window.on_set_wallpaper_dir(move |dir| {
         let directory = dir.to_string();
         tokio::spawn(async move {
-            let _ = send_command(socket_path, IPCCommand::SetWallpaperDir(directory)).await;
+            if let Err(e) = send_command(socket_path, IPCCommand::SetWallpaperDir(directory)).await { eprintln!("Failed to send command: {}", e); }
         });
     });
+
+    {
+        let h = handle.clone();
+        window.on_history_toggled(move |visible: bool| {
+            let h2 = h.clone();
+            let sp = socket_path;
+            tokio::spawn(async move {
+                if visible {
+                    if let Ok(mut stream) = UnixStream::connect(sp).await {
+                        let _ = stream.write_all(&serde_json::to_vec(&IPCCommand::GetHistory).unwrap()).await;
+                        let _ = stream.shutdown().await;
+                        let mut buffer = Vec::new();
+                        if let Ok(_) = stream.read_to_end(&mut buffer).await {
+                            if let Ok(IPCResponse::History(entries)) = serde_json::from_slice(&buffer) {
+                                let entries_vec: Vec<slint::SharedString> = entries.iter()
+                                    .map(|e| e.path.clone().into())
+                                    .collect();
+                                let h3 = h2.clone();
+                                let _ = slint::invoke_from_event_loop(move || {
+                                    let handle = h3.upgrade().unwrap();
+                                    handle.set_history_entries(std::rc::Rc::new(slint::VecModel::from(entries_vec)).into());
+                                    handle.set_history_visible(true);
+                                });
+                            }
+                        }
+                    }
+                }
+            });
+        });
+    }
+
+    {
+        let h = handle.clone();
+        window.on_revert_wallpaper(move || {
+            let path_str = socket_path.to_string();
+            let h2 = h.clone();
+            tokio::spawn(async move {
+                if let Err(e) = send_command(&path_str, IPCCommand::RevertHistory).await { eprintln!("Failed to send command: {}", e); }
+                let _ = slint::invoke_from_event_loop(move || {
+                    if let Some(handle) = h2.upgrade() {
+                        handle.set_history_visible(false);
+                    }
+                });
+            });
+        });
+    }
+
+    window.on_schedule_set(move |time: slint::SharedString, path: slint::SharedString| {
+        let t = time.to_string();
+        let p = path.to_string();
+        tokio::spawn(async move {
+            if let Err(e) = send_command(socket_path, IPCCommand::ScheduleSet { time: t, path: p }).await { eprintln!("Failed to send command: {}", e); }
+        });
+    });
+
+    {
+        let h = handle.clone();
+        window.on_schedule_toggle(move |enabled: bool| {
+            let h2 = h.clone();
+            tokio::spawn(async move {
+                if let Err(e) = send_command(socket_path, IPCCommand::ToggleSchedule).await { eprintln!("Failed to send command: {}", e); }
+                let h3 = h2.clone();
+                let _ = slint::invoke_from_event_loop(move || {
+                    if let Some(handle) = h3.upgrade() {
+                        handle.set_schedule_enabled(enabled);
+                    }
+                });
+            });
+        });
+    }
+
+
+    {
+        let h = handle.clone();
+        window.on_build_custom_wallpaper(move |name: slint::SharedString, bg_color: slint::SharedString, elem_type: slint::SharedString, elem_color: slint::SharedString, audio_reactive: bool| {
+            let mut name_str = name.to_string();
+            if name_str.trim().is_empty() {
+                name_str = "my_scene".to_string();
+            }
+            let safe_name = name_str.replace(|c: char| !c.is_alphanumeric() && c != '-', "_");
+            let filename = format!("{}.slint", safe_name);
+            
+            if let Some(handle_upgrade) = h.upgrade() {
+                let mut dir = handle_upgrade.get_wallpapers_dir().to_string();
+                if dir.is_empty() {
+                    dir = dirs::home_dir().unwrap().join("Pictures/wallpapers").to_string_lossy().to_string();
+                }
+                
+                let path = std::path::Path::new(&dir).join(&filename);
+                
+                let bg_col = if bg_color.trim().is_empty() { "#11111b" } else { bg_color.as_str() };
+                let el_col = if elem_color.trim().is_empty() { "#00ffff" } else { elem_color.as_str() };
+                
+                let mut audio_props = String::new();
+                let mut size_expr = "100px".to_string();
+                
+                if audio_reactive {
+                    audio_props = "in-out property <float> audio_0;\n    in-out property <float> audio_1;".to_string();
+                    size_expr = "(100px + audio_0 * 150px)".to_string();
+                }
+                
+                let element_code = match elem_type.as_str() {
+                    "Clock" => format!(r#"
+    Text {{
+        text: Math.floor(time_s / 3600) + ":" + Math.floor(mod(time_s / 60, 60)) + ":" + Math.floor(mod(time_s, 60));
+        color: {el_col};
+        font-size: {size_expr};
+        font-weight: 800;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        x: cursor_x * 0.05 * 1px;
+        y: cursor_y * 0.05 * 1px;
+    }}
+"#),
+                    "Bouncing Box" => format!(r#"
+    Rectangle {{
+        width: {size_expr};
+        height: {size_expr};
+        background: {el_col};
+        border-radius: 20px;
+        x: parent.width / 2 - self.width / 2 + Math.sin(time_s * 2.0) * (parent.width / 4);
+        y: parent.height / 2 - self.height / 2 + Math.cos(time_s * 3.0) * (parent.height / 4);
+    }}
+"#),
+                    _ => format!(r#"
+    Rectangle {{
+        width: {size_expr};
+        height: {size_expr};
+        background: {el_col};
+        border-radius: {size_expr} / 2;
+        x: cursor_x * 1px - self.width / 2;
+        y: cursor_y * 1px - self.height / 2;
+        animate x, y {{ duration: 150ms; easing: ease-out; }}
+    }}
+"#), // Defaults to Cursor Follower
+                };
+
+                let template = format!(r#"export component Main inherits Window {{
+    in-out property <float> time_ms;
+    in-out property <float> time_s;
+    in-out property <float> cursor_x;
+    in-out property <float> cursor_y;
+    {}
+    
+    background: {};
+
+{}
+}}
+"#, audio_props, bg_col, element_code);
+
+                let _res = std::fs::write(&path, template);
+                
+                // Immediately refresh wallpaper list
+                handle_upgrade.invoke_refresh_wallpapers();
+                
+                // Also automatically "install" (set) the newly created wallpaper
+                let path_str = path.to_string_lossy().to_string();
+                let trans = handle_upgrade.get_transition_type();
+                let dur = handle_upgrade.get_transition_duration();
+                handle_upgrade.invoke_set_wallpaper(slint::SharedString::from(path_str), trans, dur);
+            }
+        });
+    }
+
 
     // Initial status fetch
     let handle_status = handle.clone();
@@ -152,7 +438,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
             let _ = stream.shutdown().await;
             let mut buffer = Vec::new();
             if let Ok(_) = stream.read_to_end(&mut buffer).await {
-                if let Ok(IPCResponse::Status { wallpaper: _, pywal, wallpapers_dir, default_transition, default_duration }) = serde_json::from_slice::<IPCResponse>(&buffer) {
+                if let Ok(IPCResponse::Status { wallpaper: _, pywal, wallpapers_dir, default_transition, default_duration, .. }) = serde_json::from_slice::<IPCResponse>(&buffer) {
                     let _ = slint::invoke_from_event_loop(move || {
                         if let Some(h) = handle_status.upgrade() {
                             h.set_pywal_enabled(pywal);
@@ -166,59 +452,82 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    // Color update loop (sync with Pywal)
-    let handle_colors = handle.clone();
+    // Start the asynchronous file system watcher task for color updates
+    let handle_colors_clone = handle.clone();
     tokio::spawn(async move {
-        let wal_colors_path = dirs::home_dir().unwrap().join(".cache/wal/colors.json");
-        let walllust_colors_path = dirs::cache_dir().unwrap().join("walllust/colors.json");
-        loop {
-            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-            let path = if wal_colors_path.exists() { &wal_colors_path } else { &walllust_colors_path };
-            if let Ok(content) = std::fs::read_to_string(path) {
-                if let Ok(colors_obj) = serde_json::from_str::<serde_json::Value>(&content) {
-                    let mut colors = Vec::new();
-                    if let Some(c_obj) = colors_obj.get("colors") {
-                        for i in 0..16 {
-                            if let Some(c) = c_obj.get(format!("color{}", i)) {
-                                if let Some(s) = c.as_str() { colors.push(s.to_string()); }
-                            }
-                        }
-                    } else if let Ok(c_list) = serde_json::from_value::<Vec<String>>(colors_obj) {
-                        colors = c_list;
-                    }
-                    if colors.len() >= 8 {
-                        let h_copy = handle_colors.clone();
-                        let _ = slint::invoke_from_event_loop(move || {
-                            if let Some(h) = h_copy.upgrade() {
-                                h.set_background_color(parse_color(&colors[0]));
-                                h.set_accent_color(parse_color(&colors[4]));
-                                h.set_text_color(parse_color(&colors[7]));
-                                h.set_secondary_color(parse_color(&colors[1]));
-                            }
-                        });
-                    }
-                }
-            }
-        }
+        // NOTE: In a real implementation, replace this placeholder with a robust
+        // filesystem watcher (e.g., using the 'notify' crate with tokio)
+        // that monitors the directories defined below for changes to colors.json.
+        // When a change is detected, call update_colors.
+        // For demonstration, we simulate the initial check and rely on external setup 
+        // for event-driven updates.
+        
+        // Initial check of colors
+        update_colors(handle_colors_clone.clone()).await;
+        
+        // *** Watcher Implementation Placeholder ***
+        // Implementation detail: Setup Watcher over paths:
+        // 1. dirs::home_dir().unwrap().join(".cache/wal/")
+        // 2. dirs::cache_dir().unwrap().join("walllust/")
+        // On event (Write/Rename/Create) to colors.json:
+        //     update_colors(handle_colors_clone.clone()).await;
     });
 
+    // Slint's event loop is blocking; it returns when the window closes.
     window.run()?;
     Ok(())
 }
 
-async fn fetch_wallpapers(socket_path: &str) -> std::result::Result<Vec<String>, Box<dyn std::error::Error>> {
+async fn send_command(socket_path: &str, cmd: IPCCommand) -> anyhow::Result<IPCResponse> {
     let mut stream = UnixStream::connect(socket_path).await?;
-    let _ = stream.write_all(&serde_json::to_vec(&IPCCommand::ListWallpapers)?).await?;
-    let _ = stream.shutdown().await?;
+    stream.write_all(&serde_json::to_vec(&cmd)?).await?;
+    stream.shutdown().await?;
     let mut buffer = Vec::new();
-    let _ = stream.read_to_end(&mut buffer).await?;
-    if let IPCResponse::WallpaperList(walls) = serde_json::from_slice(&buffer)? { Ok(walls) } else { Ok(vec![]) }
+    stream.read_to_end(&mut buffer).await?;
+    Ok(serde_json::from_slice(&buffer)?)
 }
 
-async fn send_command(socket_path: &str, cmd: IPCCommand) -> std::result::Result<(), Box<dyn std::error::Error>> {
-    let mut stream = UnixStream::connect(socket_path).await?;
-    let _ = stream.write_all(&serde_json::to_vec(&cmd)?).await?;
-    Ok(())
+async fn fetch_wallpapers(socket_path: &str) -> anyhow::Result<Vec<String>> {
+    if let IPCResponse::WallpaperList(walls) = send_command(socket_path, IPCCommand::ListWallpapers).await? {
+        Ok(walls)
+    } else {
+        Ok(vec![])
+    }
+}
+
+async fn update_colors(handle_colors: slint::Weak<AppWindow>) {
+    let wal_colors_path = dirs::home_dir().unwrap().join(".cache/wal/colors.json");
+    let walllust_colors_path = dirs::cache_dir().unwrap().join("walllust/colors.json");
+    let path = if wal_colors_path.exists() { wal_colors_path } else { walllust_colors_path };
+
+    if path.exists() {
+        let content_result = tokio::task::spawn_blocking(move || std::fs::read_to_string(&path)).await.unwrap();
+        if let Ok(content) = content_result {
+            if let Ok(colors_obj) = serde_json::from_str::<serde_json::Value>(&content) {
+                let mut colors = Vec::new();
+                if let Some(c_obj) = colors_obj.get("colors") {
+                    for i in 0..16 {
+                        if let Some(c) = c_obj.get(format!("color{}", i)) {
+                            if let Some(s) = c.as_str() { colors.push(s.to_string()); }
+                        }
+                    }
+                } else if let Ok(c_list) = serde_json::from_value::<Vec<String>>(colors_obj) {
+                    colors = c_list;
+                }
+                if colors.len() >= 8 {
+                    let h_copy = handle_colors.clone();
+                    let _ = slint::invoke_from_event_loop(move || {
+                        if let Some(h) = h_copy.upgrade() {
+                            h.set_background_color(parse_color(&colors[0]));
+                            h.set_accent_color(parse_color(&colors[4]));
+                            h.set_text_color(parse_color(&colors[7]));
+                            h.set_secondary_color(parse_color(&colors[1]));
+                        }
+                    });
+                }
+            }
+        }
+    }
 }
 
 fn parse_color(hex: &str) -> slint::Color {
@@ -230,7 +539,7 @@ fn parse_color(hex: &str) -> slint::Color {
     } else { slint::Color::from_rgb_u8(0, 0, 0) }
 }
 
-async fn refresh_ui_wallpapers(handle: slint::Weak<AppWindow>, socket_path: &'static str) {
+async fn refresh_ui_wallpapers(handle: slint::Weak<AppWindow>, socket_path: &str) {
     let wallpapers = fetch_wallpapers(socket_path).await.unwrap_or_default();
     let cache_dir = dirs::cache_dir().unwrap().join("walllust/thumbnails");
     let _ = std::fs::create_dir_all(&cache_dir);

@@ -1,0 +1,139 @@
+// "Aurora Nexus" — showcase interactive scene wallpaper for WallLust.
+//
+//   walllust-cli set scenes/demo.slint
+//
+// A scene is any .slint file exporting a component named `Main`. The renderer
+// drives these properties if the scene declares them (all optional):
+//
+//   time_ms / time_s        time since the scene started
+//   cursor_x / cursor_y     global cursor position in px (Hyprland; updates
+//                           even when windows cover the desktop)
+//   audio_0 .. audio_7      live audio spectrum, 8 bands, 0..1 (low -> high),
+//                           captured from the default audio output
+//
+// Pointer input over exposed desktop areas is delivered natively, so the
+// TouchArea click-ripple works directly on the bare desktop.
+
+export component Main inherits Window {
+    in-out property <float> time_ms: 0;
+    in-out property <float> time_s: 0;
+    in-out property <float> cursor_x: 0;
+    in-out property <float> cursor_y: 0;
+
+    in-out property <float> audio_0: 0;
+    in-out property <float> audio_1: 0;
+    in-out property <float> audio_2: 0;
+    in-out property <float> audio_3: 0;
+    in-out property <float> audio_4: 0;
+    in-out property <float> audio_5: 0;
+    in-out property <float> audio_6: 0;
+    in-out property <float> audio_7: 0;
+
+    property <[float]> bands: [audio_0, audio_1, audio_2, audio_3, audio_4, audio_5, audio_6, audio_7];
+    // Overall loudness, drives global reactive intensity.
+    property <float> level: (audio_0 + audio_1 + audio_2 + audio_3 + audio_4 + audio_5 + audio_6 + audio_7) / 8;
+
+    // Normalised cursor offset from screen centre, in [-1, 1].
+    property <float> cx: (cursor_x * 1px - root.width / 2) / (root.width / 2);
+    property <float> cy: (cursor_y * 1px - root.height / 2) / (root.height / 2);
+
+    background: #05060a;
+
+    // --- Drifting aurora blobs -------------------------------------------
+    // Large soft radial gradients moving on slow Lissajous paths; they lean
+    // toward the cursor (parallax) and swell with the music.
+    for blob[bi] in [
+        { hue: #12d6c8, ax: 0.30, ay: 0.22, sx: 0.13, sy: 0.19, ph: 0.0, par: 0.06 },
+        { hue: #b026ff, ax: 0.28, ay: 0.26, sx: 0.17, sy: 0.11, ph: 2.1, par: 0.10 },
+        { hue: #2f6bff, ax: 0.33, ay: 0.20, sx: 0.09, sy: 0.15, ph: 4.0, par: 0.15 },
+        { hue: #ff8a3d, ax: 0.24, ay: 0.24, sx: 0.15, sy: 0.13, ph: 5.4, par: 0.20 },
+    ]: Rectangle {
+        property <length> size: root.height * (0.9 + level * 0.6);
+        width: size;
+        height: size;
+        border-radius: size / 2;
+        background: @radial-gradient(circle, blob.hue 0%, #05060a00 62%);
+        opacity: 0.55 + level * 0.30;
+        x: root.width / 2
+            + Math.sin((time_s * blob.sx + blob.ph) * 1rad) * root.width * blob.ax
+            - cx * root.width * blob.par
+            - size / 2;
+        y: root.height / 2
+            + Math.cos((time_s * blob.sy + blob.ph) * 1rad) * root.height * blob.ay
+            - cy * root.height * blob.par
+            - size / 2;
+    }
+
+    // --- Parallax starfield ----------------------------------------------
+    // Pseudo-random dots at varied depths; nearer stars shift more with the
+    // cursor, giving a 3D parallax feel. They twinkle over time.
+    for i in 90: Rectangle {
+        property <float> rx: Math.mod(i * 0.61803399 + 0.13, 1.0);
+        property <float> ry: Math.mod(i * 0.75487766 + 0.37, 1.0);
+        property <float> depth: 0.02 + Math.mod(i * 0.317, 1.0) * 0.13;
+        property <float> tw: 0.5 + 0.5 * Math.sin((time_s * (0.6 + depth * 4) + i) * 1rad);
+        width: (1.0 + depth * 12) * 1px;
+        height: self.width;
+        border-radius: self.width / 2;
+        background: #dfe9ff;
+        opacity: (0.15 + tw * 0.55) * (0.5 + level);
+        x: rx * root.width - cx * root.width * depth - self.width / 2;
+        y: ry * root.height - cy * root.height * depth - self.height / 2;
+    }
+
+    // --- Audio equalizer --------------------------------------------------
+    // Eight bars along the bottom. Each rises with its band; when silent they
+    // idle on a gentle sine so the wallpaper always feels alive.
+    HorizontalLayout {
+        x: 0; width: 100%;
+        y: root.height - root.height * 0.34;
+        height: root.height * 0.34;
+        spacing: root.width * 0.012;
+        padding-left: root.width * 0.06;
+        padding-right: root.width * 0.06;
+        for b[bi] in bands: Rectangle {
+            property <float> idle: 0.04 + 0.03 * (0.5 + 0.5 * Math.sin((time_s * 1.4 + bi * 0.6) * 1rad));
+            property <float> amp: Math.max(b, idle);
+            vertical-stretch: 1;
+            Rectangle {
+                width: parent.width;
+                height: parent.height * amp;
+                y: parent.height - self.height;
+                border-radius: self.width / 2;
+                background: @linear-gradient(180deg,
+                    #12d6c8.mix(#b026ff, bi / 7.0) 0%,
+                    #2f6bff 100%);
+                opacity: 0.35 + amp * 0.65;
+            }
+        }
+    }
+
+    // --- Cursor aura ------------------------------------------------------
+    // A large soft glow that eases toward the global cursor and shifts hue
+    // over time; it pulses with the beat. Follows the mouse even under windows.
+    Rectangle {
+        property <length> size: (280px + level * 220px);
+        width: size;
+        height: size;
+        border-radius: size / 2;
+        background: @radial-gradient(circle,
+            hsv(Math.mod(time_s * 40, 360), 0.7, 1.0) 0%,
+            #ffffff00 68%);
+        opacity: 0.28 + level * 0.4;
+        x: cursor_x * 1px - size / 2;
+        y: cursor_y * 1px - size / 2;
+        animate x, y { duration: 180ms; easing: ease-out; }
+    }
+
+    // --- Click ripple (native pointer over exposed desktop) --------------
+    ta := TouchArea { width: 100%; height: 100%; }
+    Rectangle {
+        property <length> reach: ta.pressed ? (root.width * 0.5) : 0px;
+        width: reach; height: reach;
+        border-radius: reach / 2;
+        x: ta.mouse-x - reach / 2;
+        y: ta.mouse-y - reach / 2;
+        background: @radial-gradient(circle, #ffffff44 0%, #ffffff00 70%);
+        animate width, height { duration: 520ms; easing: ease-out; }
+    }
+}

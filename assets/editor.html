@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html class="dark" lang="en">
+<head>
+    <meta charset="utf-8"/>
+    <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+    <title>WallpaperEngine Pro - Editor</title>
+    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js"></script>
+    <script>
+        tailwind.config = {
+          darkMode: "class",
+          theme: { extend: { colors: { primary: "#00f0ff", background: "#131313", "surface-container": "#201f1f", "on-surface": "#e5e2e1" } } }
+        }
+    </script>
+    <style>
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #131313; }
+        ::-webkit-scrollbar-thumb { background: #2a2a2a; border-radius: 4px; }
+        .canvas-container { margin: 0 auto; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); border: 1px solid #3b494b; }
+    </style>
+</head>
+<body class="bg-background text-on-surface h-screen overflow-hidden flex flex-col font-body-md selection:bg-primary-container selection:text-on-primary-container">
+<!-- TopAppBar -->
+<header class="bg-[#1c1b1b] flex justify-between items-center px-4 h-14 w-full z-50 border-b border-[#3b494b] shrink-0">
+    <div class="flex items-center space-x-6">
+        <div class="text-[22px] font-bold text-primary tracking-tight">WallpaperEngine Pro</div>
+        <nav class="hidden md:flex space-x-4 h-full items-center">
+            <div class="relative group">
+                <a class="text-[#b9cacb] hover:text-white transition-colors cursor-pointer text-sm font-semibold py-4" id="file-menu-btn">File ▾</a>
+                <div class="absolute left-0 top-full mt-1 bg-[#201f1f] border border-[#3b494b] rounded shadow-xl hidden group-hover:block w-32 py-1 z-50">
+                    <a id="import-btn" class="block px-4 py-2 text-sm text-[#e5e2e1] hover:bg-[#3b494b] cursor-pointer">Import Media</a>
+                </div>
+            </div>
+            <a class="text-[#b9cacb] hover:text-white transition-colors cursor-pointer text-sm font-semibold">Edit</a>
+            <a class="text-[#b9cacb] hover:text-white transition-colors cursor-pointer text-sm font-semibold">View</a>
+        </nav>
+        <input type="file" id="hidden-file-input" class="hidden" accept="image/*,video/*" />
+    </div>
+    <div class="flex items-center space-x-3">
+        <button id="add-rect-btn" class="bg-[#2a2a2a] hover:bg-[#353534] text-white px-3 py-1.5 rounded text-sm font-semibold transition flex items-center gap-1">
+            <span class="material-symbols-outlined text-[18px]">add_box</span> Add Box
+        </button>
+        <button id="export-btn" class="bg-primary text-[#00363a] hover:bg-[#00d0dd] transition-colors cursor-pointer px-4 py-1.5 rounded text-sm font-bold shadow-lg shadow-primary/20">
+            Export & Apply
+        </button>
+    </div>
+</header>
+
+<main class="flex-1 flex overflow-hidden">
+    <!-- SideNavBar -->
+    <aside class="bg-surface-container border-r border-[#3b494b] flex flex-col h-full w-[240px] shrink-0 z-40 transition-all duration-300" id="left-sidebar">
+        <div class="px-4 py-3 border-b border-[#3b494b] flex items-center space-x-2 cursor-pointer hover:bg-[#2a2a2a] transition-colors" id="layers-btn">
+            <span class="material-symbols-outlined text-[#b9cacb] text-[20px]">layers</span>
+            <span class="font-semibold text-[15px] text-on-surface">Scene Layers ▾</span>
+        </div>
+        <div class="flex-1 overflow-y-auto py-2" id="layer-stack">
+            <!-- Layers injected here -->
+        </div>
+        <div class="p-4 border-t border-[#3b494b] bg-[#1a1919]">
+            <p class="text-xs text-[#849495] leading-relaxed">
+                <strong class="text-[#b9cacb]">Tip:</strong> Drag and drop images directly onto the canvas to add them to your scene. You can resize, rotate, and position them freely!
+            </p>
+        </div>
+    </aside>
+
+    <!-- Canvas Area -->
+    <section class="flex-1 bg-[#0a0a0a] flex flex-col relative overflow-hidden" id="workspace">
+        <div class="absolute inset-0 opacity-20 pointer-events-none" style="background-image: radial-gradient(#849495 1px, transparent 1px); background-size: 24px 24px;"></div>
+        <div class="flex-1 flex items-center justify-center p-8 relative z-10 w-full h-full" id="canvas-wrapper">
+            <canvas id="fabric-canvas"></canvas>
+        </div>
+    </section>
+
+    <!-- Properties -->
+    <aside class="bg-surface-container border-l border-[#3b494b] w-[280px] flex flex-col shrink-0 z-40">
+        <div class="px-4 py-3 border-b border-[#3b494b] flex items-center justify-between">
+            <span class="font-semibold text-[15px] text-on-surface">Properties</span>
+        </div>
+        <div class="flex-1 overflow-y-auto p-4 space-y-6" id="properties-panel">
+            <div class="text-sm text-[#849495] text-center mt-10">Select an object on the canvas to view its properties.</div>
+        </div>
+    </aside>
+</main>
+
+<script>
+    // Initialize Fabric Canvas
+    const wrapper = document.getElementById('canvas-wrapper');
+    const canvas = new fabric.Canvas('fabric-canvas', {
+        width: 800,
+        height: 450,
+        backgroundColor: '#11111b'
+    });
+
+    // Make canvas responsive
+    function resizeCanvas() {
+        const padding = 64; // 32px on each side
+        const availWidth = wrapper.clientWidth - padding;
+        const availHeight = wrapper.clientHeight - padding;
+        const targetRatio = 16 / 9;
+        const availRatio = availWidth / availHeight;
+        
+        let finalWidth, finalHeight;
+        if (availRatio > targetRatio) {
+            finalHeight = availHeight;
+            finalWidth = availHeight * targetRatio;
+        } else {
+            finalWidth = availWidth;
+            finalHeight = availWidth / targetRatio;
+        }
+        
+        canvas.setDimensions({ width: finalWidth, height: finalHeight });
+        canvas.setZoom(finalWidth / 1920); // 1080p logical workspace
+    }
+    window.addEventListener('resize', resizeCanvas);
+    resizeCanvas();
+
+    let uploadedFile = null;
+
+    // Layer UI Updates
+    function updateLayers() {
+        const stack = document.getElementById('layer-stack');
+        stack.innerHTML = '';
+        const objects = canvas.getObjects();
+        
+        [...objects].reverse().forEach((obj, idx) => {
+            const el = document.createElement('div');
+            el.className = `flex items-center px-4 py-2 cursor-pointer border-l-2 ${canvas.getActiveObject() === obj ? 'bg-[#3b494b] border-primary' : 'hover:bg-[#2a2a2a] border-transparent'}`;
+            el.innerHTML = `
+                <span class="material-symbols-outlined text-[16px] mr-2 text-[#b9cacb]">${obj.type === 'image' ? 'image' : 'crop_square'}</span>
+                <span class="text-sm flex-1 truncate">${obj.name || obj.type + ' ' + (objects.length - idx)}</span>
+                <span class="material-symbols-outlined text-[16px] text-[#849495] hover:text-[#ff5555]" onclick="deleteObject(${objects.indexOf(obj)}, event)">delete</span>
+            `;
+            el.onclick = () => canvas.setActiveObject(obj);
+            stack.appendChild(el);
+        });
+    }
+
+    window.deleteObject = (idx, e) => {
+        e.stopPropagation();
+        canvas.remove(canvas.getObjects()[idx]);
+        updateLayers();
+    };
+
+    canvas.on('object:added', updateLayers);
+    canvas.on('object:removed', updateLayers);
+    canvas.on('selection:created', updateProperties);
+    canvas.on('selection:updated', updateProperties);
+    canvas.on('selection:cleared', updateProperties);
+
+    // Properties UI
+    function updateProperties() {
+        const panel = document.getElementById('properties-panel');
+        const obj = canvas.getActiveObject();
+        updateLayers(); // update selection highlight
+
+        if (!obj) {
+            panel.innerHTML = '<div class="text-sm text-[#849495] text-center mt-10">Select an object on the canvas to view its properties.</div>';
+            return;
+        }
+
+        panel.innerHTML = `
+            <div>
+                <label class="block text-[11px] text-[#b9cacb] mb-1 font-semibold uppercase tracking-wider">Fill Color</label>
+                <input type="color" id="prop-color" value="${obj.fill || '#ffffff'}" class="w-full h-8 rounded cursor-pointer bg-transparent border-0 p-0">
+            </div>
+            <div>
+                <label class="block text-[11px] text-[#b9cacb] mb-1 font-semibold uppercase tracking-wider">Opacity</label>
+                <input type="range" id="prop-opacity" min="0" max="1" step="0.05" value="${obj.opacity}" class="w-full">
+            </div>
+            ${obj.type === 'image' ? '' : `
+            <div>
+                <label class="block text-[11px] text-[#b9cacb] mb-2 font-semibold uppercase tracking-wider">Audio Reactivity (Pulse)</label>
+                <label class="flex items-center cursor-pointer">
+                    <input type="checkbox" id="prop-audio" class="sr-only peer" ${obj.audioReactive ? 'checked' : ''}>
+                    <div class="relative w-9 h-5 bg-[#3b494b] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary"></div>
+                    <span class="ms-3 text-sm font-medium text-gray-300">Enable</span>
+                </label>
+            </div>
+            `}
+        `;
+
+        document.getElementById('prop-color')?.addEventListener('input', (e) => {
+            obj.set('fill', e.target.value);
+            canvas.renderAll();
+        });
+        document.getElementById('prop-opacity')?.addEventListener('input', (e) => {
+            obj.set('opacity', parseFloat(e.target.value));
+            canvas.renderAll();
+        });
+        document.getElementById('prop-audio')?.addEventListener('change', (e) => {
+            obj.audioReactive = e.target.checked;
+        });
+    }
+
+    // Add elements
+    document.getElementById('add-rect-btn').addEventListener('click', () => {
+        const rect = new fabric.Rect({
+            left: 1920/2 - 100, top: 1080/2 - 100,
+            fill: '#00f0ff', width: 200, height: 200,
+            rx: 16, ry: 16,
+            audioReactive: true
+        });
+        canvas.add(rect);
+        canvas.setActiveObject(rect);
+    });
+
+    // Import via File Menu
+    const fileInput = document.getElementById('hidden-file-input');
+    document.getElementById('import-btn').addEventListener('click', () => {
+        fileInput.click();
+    });
+    fileInput.addEventListener('change', (e) => {
+        if (e.target.files && e.target.files.length > 0) {
+            handleMediaFile(e.target.files[0]);
+        }
+    });
+
+    // Toggle Layers Panel
+    document.getElementById('layers-btn').addEventListener('click', () => {
+        const stack = document.getElementById('layer-stack');
+        stack.style.display = stack.style.display === 'none' ? 'block' : 'none';
+    });
+
+    function handleMediaFile(file) {
+        uploadedFile = file;
+        const isVideo = file.type.startsWith('video/');
+        const reader = new FileReader();
+        reader.onload = (f) => {
+            const data = f.target.result;
+            if (isVideo) {
+                const videoEl = document.createElement('video');
+                videoEl.muted = true;
+                videoEl.loop = true;
+                videoEl.src = data;
+                videoEl.play();
+                
+                videoEl.addEventListener('loadedmetadata', () => {
+                    const img = new fabric.Image(videoEl, {
+                        left: 1920/2 - videoEl.videoWidth/2,
+                        top: 1080/2 - videoEl.videoHeight/2,
+                        objectCaching: false
+                    });
+                    img.isMedia = true;
+                    if (img.width > 1920) img.scaleToWidth(1920/2);
+                    
+                    canvas.add(img);
+                    canvas.setActiveObject(img);
+                    
+                    fabric.util.requestAnimFrame(function render() {
+                        canvas.renderAll();
+                        fabric.util.requestAnimFrame(render);
+                    });
+                });
+            } else {
+                fabric.Image.fromURL(data, (img) => {
+                    img.isMedia = true;
+                    img.scaleToWidth(1920/2);
+                    img.set({ left: 1920/2 - img.getScaledWidth()/2, top: 1080/2 - img.getScaledHeight()/2 });
+                    canvas.add(img);
+                    canvas.setActiveObject(img);
+                });
+            }
+        };
+        reader.readAsDataURL(file);
+    }
+
+    // Drag & Drop
+    wrapper.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        wrapper.style.borderColor = '#00f0ff';
+    });
+    wrapper.addEventListener('dragleave', () => {
+        wrapper.style.borderColor = 'transparent';
+    });
+    wrapper.addEventListener('drop', (e) => {
+        e.preventDefault();
+        wrapper.style.borderColor = 'transparent';
+        if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+            handleMediaFile(e.dataTransfer.files[0]);
+        }
+    });
+
+    // Export Logic
+    document.getElementById('export-btn').addEventListener('click', () => {
+        const exportBtn = document.getElementById('export-btn');
+        const originalText = exportBtn.innerText;
+        exportBtn.innerText = 'Exporting...';
+        exportBtn.disabled = true;
+
+        const objects = canvas.getObjects().map(obj => ({
+            type: obj.isMedia ? 'media' : obj.type,
+            left: obj.left, top: obj.top,
+            width: obj.width * obj.scaleX, height: obj.height * obj.scaleY,
+            angle: obj.angle, fill: obj.fill, opacity: obj.opacity,
+            audioReactive: obj.audioReactive || false
+        }));
+
+        const scene = {
+            name: "pro_editor_scene",
+            bg_color: canvas.backgroundColor,
+            objects: objects,
+            has_media: uploadedFile !== null,
+            media_filename: uploadedFile ? uploadedFile.name : null
+        };
+
+        fetch('/api/export-scene', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(scene)
+        }).then(res => {
+            if (res.ok && uploadedFile) {
+                fetch('/api/export-media', {
+                    method: 'POST',
+                    headers: {'X-Filename': uploadedFile.name, 'X-Scene-Name': scene.name},
+                    body: uploadedFile
+                }).then(() => {
+                    alert("Success! The interactive scene has been exported and applied.");
+                    exportBtn.innerText = originalText;
+                    exportBtn.disabled = false;
+                });
+            } else if (res.ok) {
+                alert("Success! The scene has been exported.");
+                exportBtn.innerText = originalText;
+                exportBtn.disabled = false;
+            } else {
+                alert("Failed to export scene.");
+                exportBtn.innerText = originalText;
+                exportBtn.disabled = false;
+            }
+        }).catch(err => {
+            alert("Export error: " + err);
+            exportBtn.innerText = originalText;
+            exportBtn.disabled = false;
+        });
+    });
+</script>
+</body>
+</html>

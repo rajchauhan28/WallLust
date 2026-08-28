@@ -86,11 +86,37 @@ export component AppWindow inherits Window {
     property <string> preview-path: "";
     in-out property <image> preview-image;
 
+    // History Modal Logic
+    property <bool> show-history: false;
+    in-out property <[string]> history-entries: [];
+    in-out property <bool> history-visible: false;
+
+    // Schedule Modal Logic
+    property <bool> show-schedule: false;
+    in-out property <bool> schedule-enabled: false;
+    in-out property <string> schedule-time: "";
+    in-out property <string> schedule-path: "";
+
+    // Build Modal Logic
+    property <bool> show-build: false;
+    in-out property <string> build-name: "custom_scene";
+    in-out property <string> build-bg-color: "#11111b";
+    in-out property <string> build-element-type: "Cursor Follower";
+    in-out property <string> build-element-color: "#00ffff";
+    in-out property <bool> build-audio-reactive: false;
+
     // Track active video task
     in-out property <int> active-video-task: 0;
 
     callback preview-opened(string);
     callback preview-closed();
+    callback history-toggled(bool);
+    callback revert-wallpaper();
+    callback schedule-set(string, string);
+    callback schedule-toggle(bool);
+
+    callback build-custom-wallpaper(string, string, string, string, bool);
+    callback open-web-editor();
 
     callback refresh-wallpapers();
     callback set-wallpaper(string, string, int);
@@ -164,6 +190,9 @@ export component AppWindow inherits Window {
                     }
                     
                     GlassButton { text: "Refresh"; accent: #00ffff; clicked => { root.refresh-wallpapers(); } }
+                    GlassButton { text: "History"; accent: #00ffff; clicked => { root.history-toggled(true); } }
+                    GlassButton { text: "Schedule"; accent: #A020F0; clicked => { root.show-schedule = true; } }
+                    GlassButton { text: "Pro Editor"; accent: #00f0ff; clicked => { root.open-web-editor(); } }
                     GlassButton { text: "Settings"; accent: #A020F0; clicked => { root.show-settings = true; } }
                 }
             }
@@ -215,7 +244,6 @@ export component AppWindow inherits Window {
                                     source: wallpapers[idx].thumbnail;
                                     width: 100%; height: 100%;
                                     image-fit: cover;
-                                    // Soft blur behind the cover can't be perfect, but overlay gives illusion
                                 }
                                 
                                 // Dimming overlay + text floating upwards
@@ -284,7 +312,7 @@ export component AppWindow inherits Window {
     }
 
     // --- Modal Background Dimming Film ---
-    if (show-preview || show-settings) : Rectangle {
+    if (show-preview || show-settings || show-history || show-schedule || show-build) : Rectangle {
         background: #07070a.with-alpha(0.75); // Atmospheric haze
         // Smooth fade handling handled by logic appearance
         TouchArea {
@@ -293,6 +321,9 @@ export component AppWindow inherits Window {
                 if (root.show-preview) { root.preview-closed(); }
                 root.show-preview = false; 
                 root.show-settings = false; 
+                root.show-history = false; 
+                root.show-schedule = false; 
+                root.show-build = false;
             }
         }
     }
@@ -407,7 +438,7 @@ export component AppWindow inherits Window {
                 Text { text: "Transition Duration (ms):"; color: #a0a0b0; font-size: 13px; }
                 ComboBox {
                     model: ["250", "500", "1000", "1500", "2000", "3000"];
-                    current-value: "\{transition-duration}";
+                    current-value: "{transition-duration}";
                     selected(val) => { 
                         transition-duration = val.to-float();
                         update-default-transition(transition-type, transition-duration);
@@ -447,6 +478,215 @@ export component AppWindow inherits Window {
                     width: 140px;
                     accent: #A020F0;
                     clicked => { show-settings = false; } 
+                }
+            }
+        }
+    }
+
+    // --- HISTORY MODAL ---
+    if (show-history) : Rectangle {
+        width: 500px; height: 400px;
+        background: #181A24.with-alpha(0.85); 
+        border-radius: 20px; 
+        border-width: 1px; 
+        border-color: #00ffff.with-alpha(0.4);
+        drop-shadow-blur: 50px;
+        drop-shadow-color: #000000.with-alpha(0.9);
+
+        VerticalBox {
+            padding: 30px; spacing: 15px;
+
+            Text { text: "Wallpaper History"; color: #ffffff; font-size: 18px; font-weight: 700; horizontal-alignment: center; }
+
+            ScrollView {
+                width: 100%;
+                vertical-stretch: 1;
+                
+                VerticalBox {
+                    spacing: 8px;
+                    for entry in history-entries : Rectangle {
+                        if entry != "" : Rectangle {
+                            height: 30px;
+                            border-radius: 8px;
+                            border-width: 1px;
+                            border-color: #00ffff.with-alpha(0.2);
+                            background: #ffffff.with-alpha(0.03);
+                            
+                            HorizontalLayout {
+                                padding-left: 10px; padding-right: 10px;
+                                Text { 
+                                    text: entry; 
+                                    color: #e0e0e0; 
+                                    font-size: 12px; 
+                                    vertical-alignment: center; 
+                                    horizontal-stretch: 1;
+                                }
+                                GlassButton {
+                                    text: "Revert";
+                                    width: 60px;
+                                    accent: #00ffff;
+                                    clicked => { 
+                                        root.revert-wallpaper(); 
+                                        root.show-history = false;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            Rectangle {} // Spacer
+
+            HorizontalLayout {
+                alignment: center;
+                GlassButton { 
+                    text: "Close"; 
+                    width: 140px;
+                    accent: #A020F0;
+                    clicked => { show-history = false; } 
+                }
+            }
+        }
+    }
+
+    // --- SCHEDULE MODAL ---
+    if (show-schedule) : Rectangle {
+        width: 500px; height: 400px;
+        background: #181A24.with-alpha(0.85); 
+        border-radius: 20px; 
+        border-width: 1px; 
+        border-color: #A020F0.with-alpha(0.4);
+        drop-shadow-blur: 50px;
+        drop-shadow-color: #000000.with-alpha(0.9);
+
+        VerticalBox {
+            padding: 30px; spacing: 15px;
+
+            Text { text: "Wallpaper Schedule"; color: #ffffff; font-size: 18px; font-weight: 700; horizontal-alignment: center; }
+
+            CheckBox {
+                text: "Enable Scheduled Wallpaper Changes";
+                checked: schedule-enabled;
+                toggled => { schedule-enabled = self.checked; schedule-toggle(self.checked); }
+            }
+
+            VerticalBox {
+                spacing: 8px; padding: 0;
+                Text { text: "Set Next Wallpaper (HH:MM format):"; color: #a0a0b0; font-size: 13px; }
+                HorizontalLayout {
+                    spacing: 15px;
+                    time-input := LineEdit {
+                        text: schedule-time;
+                        placeholder-text: "HH:MM";
+                        horizontal-stretch: 1;
+                    }
+                    path-input := LineEdit {
+                        text: schedule-path;
+                        placeholder-text: "Path to wallpaper";
+                        horizontal-stretch: 1;
+                    }
+                    GlassButton {
+                        text: "Set";
+                        width: 80px;
+                        accent: #00ffff;
+                        clicked => { 
+                            if time-input.text != "" && path-input.text != "" {
+                                root.schedule-set(time-input.text, path-input.text);
+                                root.show-schedule = false;
+                            }
+                        }
+                    }
+                }
+            }
+
+            Rectangle {} // Spacer
+
+            HorizontalLayout {
+                alignment: center;
+                GlassButton { 
+                    text: "Close"; 
+                    width: 140px;
+                    accent: #A020F0;
+                    clicked => { show-schedule = false; } 
+                }
+            }
+        }
+    }
+
+    // --- BUILD MODAL ---
+    if (show-build) : Rectangle {
+        width: 550px; height: 450px;
+        background: #181A24.with-alpha(0.85); 
+        border-radius: 20px; 
+        border-width: 1px; 
+        border-color: #00ffff.with-alpha(0.4);
+        drop-shadow-blur: 50px;
+        drop-shadow-color: #000000.with-alpha(0.9);
+
+        VerticalBox {
+            padding: 30px; spacing: 15px;
+
+            Text { text: "Interactive Wallpaper Builder"; color: #ffffff; font-size: 18px; font-weight: 700; horizontal-alignment: center; }
+            Text { text: "Design your own custom Slint scene"; color: #a0a0b0; font-size: 13px; horizontal-alignment: center; }
+
+            ScrollView {
+                VerticalBox {
+                    spacing: 15px; padding: 10px;
+
+                    VerticalBox {
+                        spacing: 5px; padding: 0;
+                        Text { text: "Scene Name:"; color: #a0a0b0; font-size: 12px; }
+                        LineEdit { text <=> root.build-name; }
+                    }
+
+                    VerticalBox {
+                        spacing: 5px; padding: 0;
+                        Text { text: "Background Color (Hex):"; color: #a0a0b0; font-size: 12px; }
+                        LineEdit { text <=> root.build-bg-color; }
+                    }
+
+                    VerticalBox {
+                        spacing: 5px; padding: 0;
+                        Text { text: "Primary Element:"; color: #a0a0b0; font-size: 12px; }
+                        ComboBox {
+                            model: ["Cursor Follower", "Clock", "Bouncing Box"];
+                            current-value <=> root.build-element-type;
+                        }
+                    }
+
+                    VerticalBox {
+                        spacing: 5px; padding: 0;
+                        Text { text: "Element Color (Hex):"; color: #a0a0b0; font-size: 12px; }
+                        LineEdit { text <=> root.build-element-color; }
+                    }
+
+                    CheckBox {
+                        text: "Enable Audio Reactivity (Pulsing)";
+                        checked <=> root.build-audio-reactive;
+                    }
+                }
+            }
+
+            Rectangle {} // Spacer
+
+            HorizontalLayout {
+                spacing: 20px;
+                alignment: center;
+                GlassButton { 
+                    text: "Cancel"; 
+                    width: 120px;
+                    accent: #f38ba8;
+                    clicked => { root.show-build = false; } 
+                }
+                GlassButton {
+                    text: "Generate & Apply";
+                    width: 160px;
+                    accent: #00ffff;
+                    clicked => { 
+                        root.build-custom-wallpaper(root.build-name, root.build-bg-color, root.build-element-type, root.build-element-color, root.build-audio-reactive);
+                        root.show-build = false;
+                    }
                 }
             }
         }

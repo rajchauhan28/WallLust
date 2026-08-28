@@ -9,6 +9,18 @@ pub enum WallpaperFill {
     Tile,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct HistoryEntry {
+    pub path: String,
+    pub timestamp: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ScheduleEntry {
+    pub time: String,
+    pub path: String,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub enum IPCCommand {
     SetWallpaper {
@@ -16,7 +28,7 @@ pub enum IPCCommand {
         wayland_display: Option<String>,
         hyprland_instance: Option<String>,
         transition: Option<String>,
-        duration: Option<u32>, // in milliseconds
+        duration: Option<u32>,
     },
     ToggleDaemon,
     SetPywal(bool),
@@ -29,7 +41,14 @@ pub enum IPCCommand {
     },
     SetWallpaperDir(String),
     GetWallpapersDir,
-    // Internal synchronization
+    GetHistory,
+    RevertHistory,
+    ScheduleSet {
+        time: String,
+        path: String,
+    },
+    GetSchedule,
+    ToggleSchedule,
     InternalFlip { new_is_1: bool, trans_dur: u64 },
     InternalRedraw { dur: u64, elapsed: u64, final_frame: bool },
 }
@@ -44,9 +63,16 @@ pub enum IPCResponse {
         wallpapers_dir: String,
         default_transition: String,
         default_duration: u32,
+        history: Vec<HistoryEntry>,
+        schedule_enabled: bool,
     },
     WallpaperList(Vec<String>),
     WallpaperDir(String),
+    History(Vec<HistoryEntry>),
+    Schedule {
+        enabled: bool,
+        schedule: Vec<ScheduleEntry>,
+    },
 }
 
 pub fn get_socket_path() -> String {
@@ -62,8 +88,12 @@ pub fn check_dependencies() -> Vec<String> {
     let mut missing = Vec::new();
     let deps = ["ffmpeg", "mpvpaper", "wal"];
     for dep in deps {
-        if std::process::Command::new("which").arg(dep).output().is_err() || 
-           !std::process::Command::new("which").arg(dep).output().unwrap().status.success() {
+        let found = std::process::Command::new("which")
+            .arg(dep)
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+        if !found {
             missing.push(dep.to_string());
         }
     }
