@@ -1,3 +1,7 @@
 /target
 CLAUDE.md
 .claude/
+
+# packaging output
+/dist/
+/build/

@@ -4,7 +4,10 @@ After=graphical-session.target
 PartOf=graphical-session.target
 
 [Service]
-ExecStart=%h/.local/bin/walllust-daemon
+# Absolute path so the distribution packages, which install to
+# /usr/bin, get a working unit. install.sh rewrites this to
+# %h/.local/bin for a from-source install.
+ExecStart=/usr/bin/walllust-daemon
 Restart=always
 RestartSec=3
 Slice=session.slice

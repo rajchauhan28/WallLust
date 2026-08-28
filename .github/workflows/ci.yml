@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Build and test
+    runs-on: ubuntu-latest
+    # Ubuntu 24.04 has GTK 4.14 and packages gtk4-layer-shell, both of which
+    # walllust-renderer needs.
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq pkg-config clang libclang-dev \
+            libwayland-dev libxkbcommon-dev libegl1-mesa-dev \
+            libfontconfig1-dev libgtk-4-dev libgtk4-layer-shell-dev \
+            libwebkitgtk-6.0-dev qt6-base-dev libavutil-dev libavcodec-dev \
+            libavformat-dev libswscale-dev libavdevice-dev libavfilter-dev \
+            libpostproc-dev libswresample-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+        continue-on-error: true
+
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
+        continue-on-error: true
+
+      - name: Build release
+        run: cargo build --release --locked
+
+      - name: Test
+        run: cargo test --release --locked --bin walllust-daemon
+
+      - name: Validate desktop entry
+        run: |
+          sudo apt-get install -y -qq desktop-file-utils
+          desktop-file-validate walllust.desktop

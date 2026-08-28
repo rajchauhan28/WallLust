@@ -1,10 +1,11 @@
 [package]
 name = "walllust"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
 description = "A high-performance, aesthetically pleasing wallpaper daemon and GUI for Wayland/Hyprland. Features smooth transitions, mpv-powered video wallpapers, and seamless Pywal color scheme integration."
 keywords = ["wallpaper", "wayland", "hyprland", "pywal", "daemon", "gui", "customization", "linux", "slint", "video-wallpaper"]
 categories = ["visualization", "multimedia", "gui"]
+readme = "README.md"
 repository = "https://github.com/rajchauhan28/WallLust"
 license = "MIT"
 
@@ -48,14 +49,40 @@ path = "src/gui/main.rs"
 slint-build = "1.15.1"
 
 [package.metadata.deb]
-maintainer = "Raj Chauhan <raj@example.com>"
+maintainer = "Raj Chauhan <rajsinghchauhan352@gmail.com>"
 copyright = "2026, Raj Chauhan"
 license-file = ["LICENSE", "0"]
-depends = "slint-cpp, mpvpaper, ffmpeg, python3-pywal"
+extended-description = "WallLust is a wallpaper daemon and GUI for Wayland and Hyprland, with image transitions, mpvpaper-backed video wallpapers, interactive Slint scene wallpapers and Pywal colour scheme integration."
+section = "x11"
+priority = "optional"
+# $auto derives the real shared-library dependencies via dpkg-shlibdeps.
+# The previous list named slint-cpp and python3-pywal, neither of which is a
+# Debian package, and Slint is statically linked into the binaries anyway.
+depends = "$auto"
+recommends = "ffmpeg"
+suggests = "mpvpaper, hyprland"
 assets = [
     ["target/release/walllust-daemon", "usr/bin/", "755"],
     ["target/release/walllust-cli", "usr/bin/", "755"],
     ["target/release/walllust-gui", "usr/bin/", "755"],
+    ["target/release/walllust-renderer", "usr/bin/", "755"],
     ["walllust-daemon.service", "usr/lib/systemd/user/", "644"],
     ["walllust.desktop", "usr/share/applications/", "644"],
+    ["scenes/demo.slint", "usr/share/walllust/scenes/", "644"],
+    ["README.md", "usr/share/doc/walllust/README.md", "644"],
+]
+
+[package.metadata.generate-rpm]
+summary = "Wallpaper daemon and GUI for Wayland and Hyprland"
+license = "MIT"
+assets = [
+    { source = "target/release/walllust-daemon", dest = "/usr/bin/walllust-daemon", mode = "755" },
+    { source = "target/release/walllust-cli", dest = "/usr/bin/walllust-cli", mode = "755" },
+    { source = "target/release/walllust-gui", dest = "/usr/bin/walllust-gui", mode = "755" },
+    { source = "target/release/walllust-renderer", dest = "/usr/bin/walllust-renderer", mode = "755" },
+    { source = "walllust-daemon.service", dest = "/usr/lib/systemd/user/walllust-daemon.service", mode = "644" },
+    { source = "walllust.desktop", dest = "/usr/share/applications/walllust.desktop", mode = "644" },
+    { source = "scenes/demo.slint", dest = "/usr/share/walllust/scenes/demo.slint", mode = "644" },
+    { source = "LICENSE", dest = "/usr/share/licenses/walllust/LICENSE", mode = "644", doc = true },
+    { source = "README.md", dest = "/usr/share/doc/walllust/README.md", mode = "644", doc = true },
 ]

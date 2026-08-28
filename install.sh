@@ -67,7 +67,11 @@ echo -e "${BLUE}Setting up systemd user service...${NC}"
 SERVICE_DIR="$HOME/.config/systemd/user"
 mkdir -p "$SERVICE_DIR"
 rm -f "$SERVICE_DIR/walllust-daemon.service"
-cp walllust-daemon.service "$SERVICE_DIR/"
+# The committed unit points at /usr/bin so the distribution packages
+# work. A source install puts the binary in ~/.local/bin instead.
+sed 's|^ExecStart=/usr/bin/walllust-daemon|ExecStart=%h/.local/bin/walllust-daemon|' \
+    walllust-daemon.service > "$SERVICE_DIR/walllust-daemon.service"
+chmod 644 "$SERVICE_DIR/walllust-daemon.service"
 
 # 6. Set up desktop entry
 echo -e "${BLUE}Setting up desktop entry...${NC}"

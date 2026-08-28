@@ -1,64 +1,137 @@
 name: Release
 
+# Tagging v* builds every package and publishes them to the release.
+# Each package is built inside its own distribution's container so the binary
+# links against the glibc it will actually run against; building them all on
+# ubuntu-latest would ship Ubuntu's glibc to Fedora and Arch users.
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
 
 permissions:
   contents: write
 
-jobs:
-  build-and-release:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+env:
+  CARGO_TERM_COLOR: always
 
-      - name: Install dependencies
+jobs:
+  debian:
+    name: Debian package
+    runs-on: ubuntu-latest
+    # trixie, not bookworm: walllust-renderer needs gtk4-layer-shell, which
+    # bookworm does not package, and the gtk4 crate is built with feature
+    # v4_12 while bookworm ships GTK 4.8.
+    container: debian:trixie
+    steps:
+      - name: Install build dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libwayland-dev \
-            libxkbcommon-dev \
-            libegl1-mesa-dev \
-            libfontconfig1-dev \
-            libavutil-dev \
-            libavcodec-dev \
-            libavformat-dev \
-            libswscale-dev \
-            libavdevice-dev \
-            libavfilter-dev \
-            libpostproc-dev \
-            libswresample-dev \
-            clang \
-            libclang-dev \
-            pkg-config
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update -qq
+          apt-get install -y -qq build-essential curl ca-certificates git \
+            pkg-config clang libclang-dev libwayland-dev libxkbcommon-dev \
+            libegl1-mesa-dev libfontconfig1-dev libgtk-4-dev \
+            libgtk4-layer-shell-dev libwebkitgtk-6.0-dev qt6-base-dev \
+            libavutil-dev libavcodec-dev libavformat-dev libswscale-dev \
+            libavdevice-dev libavfilter-dev libpostproc-dev libswresample-dev
+
+      - uses: actions/checkout@v4
 
       - uses: dtolnay/rust-toolchain@stable
 
       - name: Install cargo-deb
-        run: cargo install cargo-deb
+        run: cargo install cargo-deb --locked
 
-      - name: Build
-        run: cargo build --release
+      - name: Build package
+        run: cargo deb --output dist/
 
-      - name: Create Debian Package
-        run: cargo deb
-
-      - name: Create Release Archive
-        run: |
-          mkdir -p dist
-          cp target/release/walllust-daemon dist/
-          cp target/release/walllust-cli dist/
-          cp target/release/walllust-gui dist/
-          cp walllust-daemon.service dist/
-          cp walllust.desktop dist/
-          tar -czvf walllust-x86_64.tar.gz -C dist .
-
-      - name: Release
-        uses: softprops/action-gh-release@v2
+      - uses: actions/upload-artifact@v4
         with:
-          files: |
-            target/debian/*.deb
-            walllust-x86_64.tar.gz
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          name: deb
+          path: dist/*.deb
+
+  fedora:
+    name: Fedora package
+    runs-on: ubuntu-latest
+    container: fedora:latest
+    steps:
+      - name: Install build dependencies
+        run: |
+          dnf install -y -q gcc gcc-c++ curl git clang clang-devel \
+            pkgconf-pkg-config rpm-build wayland-devel libxkbcommon-devel \
+            mesa-libEGL-devel fontconfig-devel gtk4-devel \
+            gtk4-layer-shell-devel webkitgtk6.0-devel qt6-qtbase-devel \
+            ffmpeg-free-devel
+
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-generate-rpm
+        run: cargo install cargo-generate-rpm --locked
+
+      - name: Build package
+        run: |
+          cargo build --release
+          strip -s target/release/walllust-daemon target/release/walllust-cli \
+                   target/release/walllust-gui target/release/walllust-renderer || true
+          cargo generate-rpm --output dist/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rpm
+          path: dist/*.rpm
+
+  archlinux:
+    name: Arch package
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+    steps:
+      - name: Install build dependencies
+        run: |
+          # makepkg refuses to build unless everything in depends= is
+          # installed, so this also validates the PKGBUILD's dependency names.
+          pacman -Syu --noconfirm --needed base-devel git rust clang pkgconf \
+            gcc-libs glibc qt6-base ffmpeg webkitgtk-6.0 gtk4 gtk4-layer-shell \
+            libxkbcommon fontconfig freetype2 harfbuzz libglvnd libx11 glib2 \
+            icu libsoup3 libpng
+
+      - uses: actions/checkout@v4
+
+      - name: Build package
+        run: |
+          # makepkg refuses to run as root.
+          useradd -m builder
+          VERSION=$(grep -m1 '^version' Cargo.toml | sed -E 's/version *= *"([^"]+)"/\1/')
+          git config --global --add safe.directory "$PWD"
+          git archive --format=tar.gz --prefix=walllust-build/ \
+            -o "/home/builder/walllust-${VERSION}.tar.gz" HEAD
+          cp PKGBUILD /home/builder/
+          chown -R builder:builder /home/builder
+          su builder -c 'cd /home/builder && makepkg -f --noconfirm --skipinteg'
+          mkdir -p dist
+          cp /home/builder/*.pkg.tar.zst dist/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: arch
+          path: dist/*.pkg.tar.zst
+
+  release:
+    name: Publish release
+    needs: [debian, fedora, archlinux]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: List artifacts
+        run: ls -lhR dist
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+          fail_on_unmatched_files: true
