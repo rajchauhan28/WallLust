@@ -13,20 +13,24 @@ jobs:
   build:
     name: Build and test
     runs-on: ubuntu-latest
-    # Ubuntu 24.04 has GTK 4.14 and packages gtk4-layer-shell, both of which
-    # walllust-renderer needs.
+    # Runs in the same container as the release job rather than on
+    # ubuntu-latest: walllust-renderer needs gtk4-layer-shell, and
+    # ubuntu-latest has no libgtk4-layer-shell-dev package at all.
+    container: debian:trixie
     steps:
-      - uses: actions/checkout@v4
-
       - name: Install build dependencies
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq pkg-config clang libclang-dev \
-            libwayland-dev libxkbcommon-dev libegl1-mesa-dev \
-            libfontconfig1-dev libgtk-4-dev libgtk4-layer-shell-dev \
-            libwebkitgtk-6.0-dev libavutil-dev libavcodec-dev \
-            libavformat-dev libswscale-dev libavdevice-dev libavfilter-dev \
-            libpostproc-dev libswresample-dev
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update -qq
+          apt-get install -y -qq build-essential curl ca-certificates git \
+            pkg-config clang libclang-dev libwayland-dev libxkbcommon-dev \
+            libegl1-mesa-dev libfontconfig1-dev libgtk-4-dev \
+            libgtk4-layer-shell-dev libwebkitgtk-6.0-dev libavutil-dev \
+            libavcodec-dev libavformat-dev libswscale-dev libavdevice-dev \
+            libavfilter-dev libpostproc-dev libswresample-dev \
+            desktop-file-utils
+
+      - uses: actions/checkout@v4
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -49,6 +53,4 @@ jobs:
         run: cargo test --release --locked --bin walllust-daemon
 
       - name: Validate desktop entry
-        run: |
-          sudo apt-get install -y -qq desktop-file-utils
-          desktop-file-validate walllust.desktop
+        run: desktop-file-validate walllust.desktop
