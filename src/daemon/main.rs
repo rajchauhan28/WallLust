@@ -110,12 +110,18 @@ struct Args {
 struct DaemonState {
     current_wallpaper: Option<String>,
     pywal_enabled: bool,
+    #[serde(default = "default_preview_enabled")]
+    preview_enabled: bool,
     wallpapers_dir: PathBuf,
     default_transition: String,
     default_duration: u32,
     history: Vec<HistoryEntry>,
     schedule_enabled: bool,
     schedule: Vec<common::ScheduleEntry>,
+}
+
+fn default_preview_enabled() -> bool {
+    true
 }
 
 impl DaemonState {
@@ -149,6 +155,7 @@ impl DaemonState {
         DaemonState {
             current_wallpaper: None,
             pywal_enabled: !args.no_pywal,
+            preview_enabled: true,
             wallpapers_dir,
             default_transition: args.transition.clone(),
             default_duration: args.duration,
@@ -834,9 +841,26 @@ async fn handle_client(
                                 .await;
                             s.save();
 
-                            if s.pywal_enabled && is_image {
+                            if s.pywal_enabled && (is_image || is_video) {
+                                // A video file is not something pywal can
+                                // sample, so prefer the cached thumbnail the
+                                // GUI generates for it and fall back to the
+                                // raw path when no thumbnail exists yet.
+                                let wal_path = if is_video {
+                                    let thumb = dirs::cache_dir()
+                                        .unwrap_or_else(|| std::path::PathBuf::from("."))
+                                        .join("walllust/thumbnails")
+                                        .join(format!("{:x}.jpg", fxhash::hash64(&path)));
+                                    if thumb.exists() {
+                                        thumb.to_string_lossy().to_string()
+                                    } else {
+                                        path.clone()
+                                    }
+                                } else {
+                                    path.clone()
+                                };
                                 let _ = tokio::process::Command::new("wal")
-                                    .args(["-i", &path, "-n", "-e"])
+                                    .args(["-i", &wal_path, "-n", "-e"])
                                     .spawn();
                             }
                             if is_image {
@@ -889,6 +913,7 @@ async fn handle_client(
                     IPCResponse::Status {
                         wallpaper: s.current_wallpaper.clone(),
                         pywal: s.pywal_enabled,
+                        preview_enabled: s.preview_enabled,
                         wallpapers_dir: s.wallpapers_dir.to_string_lossy().to_string(),
                         default_transition: s.default_transition.clone(),
                         default_duration: s.default_duration,
@@ -921,6 +946,12 @@ async fn handle_client(
                     } else {
                         IPCResponse::Error("Not enough history".to_string())
                     }
+                }
+                Ok(IPCCommand::TogglePreview(enabled)) => {
+                    let mut s = state.lock().await;
+                    s.preview_enabled = enabled;
+                    s.save();
+                    IPCResponse::Success(format!("Preview set to {}", enabled))
                 }
                 Ok(IPCCommand::SetPywal(enabled)) => {
                     let mut s = state.lock().await;

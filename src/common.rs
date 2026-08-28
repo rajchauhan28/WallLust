@@ -32,6 +32,7 @@ pub enum IPCCommand {
     },
     ToggleDaemon,
     SetPywal(bool),
+    TogglePreview(bool),
     GetStatus,
     ListWallpapers,
     SetFill(WallpaperFill),
@@ -60,6 +61,7 @@ pub enum IPCResponse {
     Status {
         wallpaper: Option<String>,
         pywal: bool,
+        preview_enabled: bool,
         wallpapers_dir: String,
         default_transition: String,
         default_duration: u32,
