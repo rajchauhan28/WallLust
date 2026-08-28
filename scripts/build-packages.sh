@@ -56,7 +56,7 @@ build_deb() {
         apt-get install -y -qq build-essential curl ca-certificates pkg-config \
             clang libclang-dev libwayland-dev libxkbcommon-dev libegl1-mesa-dev \
             libfontconfig1-dev libgtk-4-dev libgtk4-layer-shell-dev \
-            libwebkitgtk-6.0-dev qt6-base-dev libavutil-dev libavcodec-dev \
+            libwebkitgtk-6.0-dev libavutil-dev libavcodec-dev \
             libavformat-dev libswscale-dev libavdevice-dev libavfilter-dev \
             libpostproc-dev libswresample-dev >/dev/null
         $RUSTUP
@@ -74,7 +74,7 @@ build_rpm() {
         dnf install -y -q gcc gcc-c++ curl clang clang-devel pkgconf-pkg-config \
             rpm-build wayland-devel libxkbcommon-devel mesa-libEGL-devel \
             fontconfig-devel gtk4-devel gtk4-layer-shell-devel \
-            webkitgtk6.0-devel qt6-qtbase-devel ffmpeg-free-devel >/dev/null
+            webkitgtk6.0-devel ffmpeg-free-devel >/dev/null
         $RUSTUP
         cargo install cargo-generate-rpm --locked >/dev/null 2>&1
         tar xzf /src.tar.gz -C /tmp
@@ -95,9 +95,9 @@ build_arch() {
     # as root, hence the dedicated unprivileged user.
     run_in archlinux:base-devel "
         pacman -Syu --noconfirm --needed base-devel git rust clang pkgconf \
-            gcc-libs glibc qt6-base ffmpeg webkitgtk-6.0 gtk4 gtk4-layer-shell \
+            gcc-libs glibc ffmpeg webkitgtk-6.0 gtk4 gtk4-layer-shell \
             libxkbcommon fontconfig freetype2 harfbuzz libglvnd libx11 glib2 \
-            icu libsoup3 libpng >/dev/null
+            libsoup3 libpng >/dev/null
         useradd -m builder
         cp /src.tar.gz /home/builder/${PKGNAME}-\$VERSION.tar.gz
         tar xzf /src.tar.gz -C /tmp

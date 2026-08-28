@@ -14,8 +14,15 @@ name = "walllust-renderer"
 path = "src/renderer/main.rs"
 
 [dependencies]
-slint = { version = "1.15.1" }
-slint-interpreter = "1.15.1"
+# default-features = false drops Slint's Qt backend. It was only ever pulled
+# in by the default feature set, it requires the rust-cpp/qttypes C++ bridge
+# to build, and Slint never selects it at runtime unless SLINT_BACKEND=Qt.
+slint = { version = "1.15.1", default-features = false, features = [
+    "std", "backend-winit", "renderer-femtovg", "compat-1-2",
+] }
+slint-interpreter = { version = "1.15.1", default-features = false, features = [
+    "std", "backend-winit", "renderer-femtovg", "compat-1-2",
+] }
 tokio = { version = "1.50.0", features = ["full"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
@@ -25,7 +32,10 @@ clap = { version = "4.5.60", features = ["derive"] }
 dirs = "6.0.0"
 layer-shika = "0.3.1"
 anyhow = "1.0"
-ffmpeg-next = "8.1.0"
+# Must track the system FFmpeg major version: 8.1.0 does not know
+# FFmpeg 9's new AVFrameSideDataType/AVPacketSideDataType variants and
+# fails to compile against it with non-exhaustive match errors.
+ffmpeg-next = "9.0.0"
 rustfft = "6.2"
 libc = "0.2"
 gtk4 = { version = "0.11.0", features = ["v4_12"] }

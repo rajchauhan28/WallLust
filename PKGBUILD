@@ -6,18 +6,19 @@ pkgdesc="A wallpaper daemon and GUI for Wayland/Hyprland with image transitions,
 arch=('x86_64')
 url="https://github.com/rajchauhan28/WallLust"
 license=('MIT')
-# Derived from `ldd` on the release binaries. Slint is statically linked, so
-# there is no slint package to depend on; qt6-base is pulled in because the
-# slint crate is built with its default features, which include the Qt
-# backend. webkitgtk-6.0 and gtk4-layer-shell are needed by walllust-renderer.
-depends=('gcc-libs' 'glibc' 'qt6-base' 'ffmpeg' 'webkitgtk-6.0' 'gtk4'
+# Derived from `ldd` on the release binaries. Slint is statically linked and
+# its Qt backend is disabled, so there is no slint or qt6 package to depend
+# on. webkitgtk-6.0 and gtk4-layer-shell are needed by walllust-renderer.
+depends=('gcc-libs' 'glibc' 'ffmpeg' 'webkitgtk-6.0' 'gtk4'
          'gtk4-layer-shell' 'libxkbcommon' 'fontconfig' 'freetype2'
-         'harfbuzz' 'libglvnd' 'libx11' 'glib2' 'icu' 'libsoup3' 'libpng')
+         'harfbuzz' 'libglvnd' 'libx11' 'glib2' 'libsoup3' 'libpng')
 optdepends=('mpvpaper: video wallpaper backend'
             'python-pywal: colour scheme generation'
             'libpipewire: parec, for audio-reactive scene wallpapers'
             'hyprland: cursor tracking in scene wallpapers')
 makedepends=('rust' 'clang' 'pkgconf')
+# A separate debug package is not something this project publishes.
+options=('!debug')
 source=("$pkgname-$pkgver.tar.gz")
 sha256sums=('SKIP')
 

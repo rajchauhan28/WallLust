@@ -24,7 +24,7 @@ jobs:
           sudo apt-get install -y -qq pkg-config clang libclang-dev \
             libwayland-dev libxkbcommon-dev libegl1-mesa-dev \
             libfontconfig1-dev libgtk-4-dev libgtk4-layer-shell-dev \
-            libwebkitgtk-6.0-dev qt6-base-dev libavutil-dev libavcodec-dev \
+            libwebkitgtk-6.0-dev libavutil-dev libavcodec-dev \
             libavformat-dev libswscale-dev libavdevice-dev libavfilter-dev \
             libpostproc-dev libswresample-dev
 
